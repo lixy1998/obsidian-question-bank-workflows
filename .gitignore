@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# 本机配置（首次使用引导写入，含个人 vault 路径，绝不随仓库发布）
+scripts/skill_config.json
+
 # 系统/编辑器
 .DS_Store
 Thumbs.db

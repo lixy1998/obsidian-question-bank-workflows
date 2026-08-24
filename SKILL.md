@@ -13,31 +13,33 @@ author: lixy1998
 
 ## 资产位置
 
-> **题库库根目录（vault）由环境变量 `TNOTE_VAULT` 指定**（本机示例 `D:/Documents/TNote`，设置见「初始化」）。以下路径均以 `{vault}` 表示。
+> **题库库根目录（vault）配置**：首次使用引导写入 `<skill>/scripts/skill_config.json`（优先级：环境变量 `TNOTE_VAULT` > 配置文件 > 引导报错）。以下路径均以 `{vault}` 表示。
 
 | 资产 | 路径 |
 |---|---|
 | 题库库（Obsidian vault） | `{vault}/{学段}-{序号类别}/{卷名}/{卷名}_{题型}/{序号}.md`（如 `{vault}/初中-1中考真题/2026河南中考/…`；类别枚举见下） |
-| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / fix_arabic_numerals.py（中文数字→阿拉伯数字批量转换，覆盖题库 YAML / 词表两处） |
+| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / fix_arabic_numerals.py（中文数字→阿拉伯数字批量转换，覆盖题库 YAML / 词表两处）/ **setup.py（首次配置引导：写入 vault + 建库）** |
 | 课名词表（本 skill 内） | `<skill>/scripts/BOOK_INDEX.md`（唯一权威，随 skill 分发） |
 | 单题模板（本 skill 内） | `<skill>/templates/历史试题模板.md`（初始化时复制到 vault 模板目录） |
-| Python | 运行环境矩阵：**venv**（pyyaml）跑 qb_schema / scan / gen_problem / export / gen_index / fix_arabic_numerals；**主环境**跑 `read_docx.py`（python-docx）、`pull_pdf_images.py`（pymupdf）及 PPT/md 链路B 提取（python-pptx）——venv 未装这些依赖，勿用 venv 跑；依赖安装见「初始化」 |
+| 本机配置（本 skill 内） | `<skill>/scripts/skill_config.json`（`{"vault": "..."}`；**已入 .gitignore，不随仓库发布**） |
+| Python | 运行环境矩阵：**venv**（pyyaml）跑 qb_schema / scan / gen_problem / export / gen_index / fix_arabic_numerals / setup；**主环境**跑 `read_docx.py`（python-docx）、`pull_pdf_images.py`（pymupdf）及 PPT/md 链路B 提取（python-pptx）——venv 未装这些依赖，勿用 venv 跑；依赖安装见「初始化」 |
 
 **类别枚举**（学段-序号类别，原创/改编不占目录）：初中：`1中考真题 / 2中考模拟题 / 3阶段测试`；高中：`1高考真题 / 2高考模拟题 / 3阶段测试`。
 
 **来源 = 多值标签**：出处标签自由（卷名/教材课名，如 `2026河南中考`、`8上教材第1课`）+ 类型标签建议受控（`真题 / 教材改编 / 中考改编 / 原创题 / 期末卷 / 模拟卷`）。**原创题/改编题不新建文件夹**，靠来源标签区分；改编题「年份」写改编年份（非原卷年份）。
 
-## 初始化（首次使用）
+## 初始化（首次使用，引导式）
 
-1. **设置 vault 环境变量**：`TNOTE_VAULT` 指向 Obsidian 题库库根目录
-   - Windows：`setx TNOTE_VAULT "D:/Documents/TNote"`（新开终端生效）或 系统设置→环境变量
-   - macOS/Linux：`export TNOTE_VAULT=/path/to/TNote`（写入 `~/.zshrc` / `~/.bashrc`）
-2. **Python 依赖**：
+**核心流程：首次使用（或 vault 未配置）时，主动询问用户，不预设**——① 问题库库（vault）在哪（有现成的给路径，没有的给想新建的路径）；② 将路径写入 `<skill>/scripts/skill_config.json`（`python setup.py --vault <路径> --init`，`--init` 自动建库）；③ 之后所有脚本自动读取。
+
+1. **AI 引导**（推荐）：用户说「录入到题库」等时，若脚本报「未配置题库库」→ 主动询问 vault 位置 → 用户提供后执行 `python scripts/setup.py --vault "<路径>" --init`（或仅 `--vault`，不建库）→ 提示完成
+2. **命令行引导**：`python scripts/setup.py`（交互式，可新建）或 `python scripts/setup.py --vault <路径> --init`（一键写入+建库）
+3. **兼容通道（可选）**：环境变量 `TNOTE_VAULT` 优先级最高（Windows `setx TNOTE_VAULT "D:/Documents/TNote"`；macOS/Linux 写入 shell 配置）
+4. **Python 依赖**：
    - 核心流程（写 JSON → gen → scan → export）只需 `pyyaml`：`pip install pyyaml`
    - 链路B 扩展（可选）：`pip install python-docx pymupdf python-pptx`（docx 直读 / PDF 裁剪补图 / PPT 提取）
-3. **复制单题模板**：`<skill>/templates/历史试题模板.md` → 目标库模板目录（如 `{vault}/0-Template-模板/`）
-4. **可选：MinerU 服务**（仅扫描版 PDF/图片需要，链路A）：安装 `mineru-open-api` CLI 并配置 token（`~/.mineru/config.yaml`）；文字版文件（docx/PPT/md）走链路B 免 MinerU
-5. **建库**：在 vault 根下建 `初中-1中考真题` 等六个类别目录（类别枚举见下）即可开始录入
+5. **建库**：`--init` 自动建六类别目录 + 复制模板到 `{vault}/0-Template-模板/`；已建库的跳过
+6. **可选：MinerU 服务**（仅扫描版 PDF/图片需要，链路A）：安装 `mineru-open-api` CLI 并配置 token（`~/.mineru/config.yaml`）；文字版文件（docx/PPT/md）走链路B 免 MinerU
 
 > 脚本路径用 `<skill>/scripts/` 指代；在 skill 目录内执行时直接 `cd scripts && python …`。
 

@@ -8,22 +8,37 @@
 - 原创题/改编题不建独立文件夹，靠「来源」标签区分（教材改编/中考改编/原创题等）
 - 导出组卷 = 剥离 frontmatter，答案永不外泄
 """
+import json
 import os
 import re
 from pathlib import Path
+
+# 本技能内配置文件：首次使用引导写入（setup.py --vault 或 AI 询问后写入）；已加入 .gitignore，不随仓库发布
+CONFIG_FILE = Path(__file__).parent / "skill_config.json"
+
+
+def load_config() -> dict:
+    """读取本技能配置文件（不存在返回空 dict）。"""
+    try:
+        return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def get_vault() -> str:
     """题库库根目录（题库目录直接位于 vault 根下）。
 
-    优先读环境变量 TNOTE_VAULT；未设置时给出友好提示（不硬编码默认路径，便于公开发布）。
-    示例：set TNOTE_VAULT=D:/Documents/TNote
+    优先级：环境变量 TNOTE_VAULT > 本技能 scripts/skill_config.json 的 vault 字段 > 引导报错。
+    - 首次使用：用 `python scripts/setup.py --vault <路径> [--init]` 写入配置（或直接告知 AI 询问配置）
+    - 环境变量可省略：配置文件方案对不熟悉环境变量的用户更友好
     """
-    v = os.environ.get("TNOTE_VAULT")
+    v = os.environ.get("TNOTE_VAULT") or load_config().get("vault")
     if not v:
         raise RuntimeError(
-            "未设置 TNOTE_VAULT 环境变量：请指向 Obsidian 题库库根目录，"
-            "如 TNOTE_VAULT=D:/Documents/TNote（Windows 用 setx 或系统设置，重启终端生效）"
+            "未配置题库库（vault）路径。两种方式任选：\n"
+            "  ① python scripts/setup.py --vault <路径> --init   （命令行引导，--init 可自动建库）\n"
+            "  ② 告知 AI 你的题库库位置（或让 AI 新建），由 AI 写入 scripts/skill_config.json\n"
+            "设置后重跑即可。"
         )
     return v.rstrip("/\\")
 
