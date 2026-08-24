@@ -1,0 +1,177 @@
+# -*- coding: utf-8 -*-
+"""scan_questions.py — 题库健康检查 + 统计。
+
+- 扫描 {vault}/初中-*/高中-* 目录下全部单题 md
+- 校验：必填字段、id 唯一性、受控枚举（册别/题型/难度）、正文非空
+- 输出：总量统计 + 按册别/题型/难度分布 + 问题清单
+
+用法：
+  python scan_questions.py
+  python scan_questions.py --卷 2026河南中考     # 只看某卷
+  python scan_questions.py --json                # 输出机器可读统计
+  python scan_questions.py --dump                # 输出全量题目元数据（JSON 数组，供命令行检索过滤）
+"""
+import argparse
+import json
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+
+from qb_schema import (BOOKS, DIFFICULTIES, REQUIRED_FIELDS, TYPES,
+                       VAULT, SchemaError, as_list, split_frontmatter,
+                       stage_roots, validate_lesson)
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+
+def _empty(v) -> bool:
+    """字段为空判断：None / 空串 / 空 list。"""
+    if v is None:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    if isinstance(v, list):
+        return not v
+    return False
+
+
+# 郑林 9 要素编号格式（A1-C3）：关键能力主词表；徐奉先 3×3 为旧标注（存量迁移未完成，仅提示）
+ZHENG_RE = re.compile(r"^[ABC][1-3]-")
+
+
+def dump(roots, only_vol: str = None):
+    """输出全量题目元数据（JSON 数组），供命令行检索/过滤（对应 SKILL.md 流程二）。"""
+    out = []
+    for root in roots:
+        for p in sorted(root.rglob("*.md")):
+            if p.name == "README.md" or p.name.endswith(("_学生版.md", "_教师版.md")):
+                continue
+            if only_vol and only_vol not in p.parts:
+                continue
+            fm, _, _ = split_frontmatter(p.read_text(encoding="utf-8"))
+            rel = p.relative_to(Path(VAULT)).parts
+            out.append({
+                "id": fm.get("id"),
+                "册别": fm.get("册别"), "课": fm.get("课"),
+                "题型": fm.get("题型"), "难度": fm.get("难度"),
+                "来源": fm.get("来源"), "年份": fm.get("年份"),
+                "卷名": rel[1] if len(rel) > 1 else None,
+                "文件": str(p),
+            })
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+
+
+def scan(roots, only_vol: str = None):
+    problems, stats = [], Counter()
+    seen_ids, total = {}, 0
+    old_ks_count = 0  # 关键能力仍为徐奉先旧格式的题数（提示级，不计入 problems）
+    for root in roots:
+        for p in sorted(root.rglob("*.md")):
+            if p.name == "README.md" or p.name.endswith(("_学生版.md", "_教师版.md")):
+                continue
+            if only_vol and only_vol not in p.parts:
+                continue  # --卷 过滤：只保留路径中含该卷名的文件
+            total += 1
+            rel = p.relative_to(Path(VAULT))
+            fm, body, err = split_frontmatter(p.read_text(encoding="utf-8"))
+            if err:
+                problems.append(f"[{err}] {rel}")
+            # 必填字段
+            for f in REQUIRED_FIELDS:
+                if _empty(fm.get(f)):
+                    problems.append(f"[缺字段 {f}] {rel}")
+            # id 唯一
+            qid = fm.get("id")
+            if qid:
+                if qid in seen_ids:
+                    problems.append(f"[id重复 {qid}] {rel}（先见于 {seen_ids[qid]}）")
+                else:
+                    seen_ids[qid] = rel
+            # 枚举（册别支持多值，逐项校验）
+            for b in as_list(fm.get("册别")):
+                if b not in BOOKS:
+                    problems.append(f"[册别非法 {b}] {rel}")
+            if fm.get("题型") and fm["题型"] not in TYPES:
+                problems.append(f"[题型非法 {fm['题型']}] {rel}")
+            if fm.get("难度") and fm["难度"] not in DIFFICULTIES:
+                problems.append(f"[难度非法 {fm['难度']}] {rel}")
+            # 课名 vs BOOK_INDEX（按册别映射版本节词表）
+            try:
+                validate_lesson(fm)
+            except SchemaError as e:
+                problems.append(f"[课名词表] {e}（{rel}）")
+            # 关键能力格式提示（郑林 A1-C3 主词表；徐奉先旧格式/无标注提示，存量迁移未完成）
+            ks = as_list(fm.get("关键能力"))
+            if ks and any(not ZHENG_RE.match(x) for x in ks):
+                old_ks_count += 1
+            # 正文非空
+            if not body.strip():
+                problems.append(f"[正文为空] {rel}")
+            # 统计（册别/来源/核心素养/关键能力均支持多值标签）
+            stats["总数"] += 1
+            for b in as_list(fm.get("册别")):
+                stats[f"册别::{b}"] += 1
+            stats[f"题型::{fm.get('题型')}"] += 1
+            stats[f"难度::{fm.get('难度')}"] += 1
+            for s in as_list(fm.get("来源")):
+                stats[f"来源::{s}"] += 1
+            for s in as_list(fm.get("核心素养")):
+                stats[f"核心素养::{s}"] += 1
+            for s in as_list(fm.get("素养层次水平")):
+                stats[f"素养层次水平::{s}"] += 1
+            for s in as_list(fm.get("关键能力")):
+                stats[f"关键能力::{s}"] += 1
+    return total, stats, problems, old_ks_count
+
+
+def main():
+    ap = argparse.ArgumentParser(description="历史题库健康检查")
+    ap.add_argument("--卷", help="只看指定卷")
+    ap.add_argument("--json", action="store_true", help="输出 JSON")
+    ap.add_argument("--dump", action="store_true", help="输出全量题目元数据（JSON 数组）")
+    args = ap.parse_args()
+
+    roots = stage_roots()
+    if not roots:
+        print(f"[失败] 未找到题库目录：{VAULT} 根下应存在 初中-* / 高中-*", file=sys.stderr)
+        sys.exit(1)
+
+    if args.dump:
+        dump(roots, args.卷)
+        return
+
+    total, stats, problems, old_ks_count = scan(roots, args.卷)
+
+    if args.json:
+        print(json.dumps({"total": total, "stats": dict(stats),
+                          "problems": problems, "old_ks_count": old_ks_count},
+                         ensure_ascii=False, indent=2))
+        return
+
+    print(f"═══ 历史题库健康检查 ═══")
+    print(f"题库路径：{VAULT}（{' '.join(r.name for r in roots)}）")
+    print(f"题目总数：{total}")
+    for k in ("册别", "题型", "难度", "来源", "核心素养", "素养层次水平", "关键能力"):
+        items = [(suffix, c) for key, c in stats.items() if key.startswith(f"{k}::")
+                 for suffix in [key.split("::", 1)[1]]]
+        if items:
+            print(f"\n按{k}分布：")
+            for name, c in sorted(items, key=lambda x: -x[1]):
+                print(f"  {name:<10} {c}")
+    if old_ks_count:
+        print(f"\nℹ 关键能力旧格式提示：{old_ks_count} 题仍为徐奉先 3×3 旧标注"
+              f"（郑林 A1-C3 迁移未完成，未计入问题；迁移映射见 references/素养能力词表.md 第三章）")
+    if problems:
+        print(f"\n⚠ 问题 {len(problems)} 项：")
+        for p in problems:
+            print(f"  {p}")
+    else:
+        print("\n✓ 无问题")
+
+
+if __name__ == "__main__":
+    main()
