@@ -202,14 +202,31 @@ def question_path(rec: dict) -> Path:
 
 
 def build_body(rec: dict) -> str:
-    """由 题干(+选项) 生成正文。选择题：题干 + (A)(B)(C)(D)；材料题：题干原文。"""
+    """由 题干(+选项) 生成正文。选择题：题干 + (A)(B)(C)(D)；材料题：题干原文。
+
+    图片自动插图（2026-08-26 起）：rec["图片"] = [{"src": 源路径, "name": "21_1.jpg"}, ...]
+    正文尾部自动追加 `![](images/名字)` 引用；题干已含同名引用（手写 `![](images/…)`）则不重复追加。
+    行为与「图片字段负责复制文件、题干负责引用」的旧约定兼容，且选择题不再依赖题干手写引用。
+    """
     stem = str(rec.get("题干", "")).strip()
     opts = rec.get("选项") or []
     if opts:
         letters = ["A", "B", "C", "D", "E", "F"]
         line = "  ".join(f"({letters[i]}) {o.strip()}" for i, o in enumerate(opts))
-        return f"{stem}\n{line}".strip()
-    return stem
+        body = f"{stem}\n{line}".strip()
+    else:
+        body = stem
+    imgs = rec.get("图片") or []
+    if imgs:
+        refs = []
+        for it in imgs:
+            name = (it.get("name") or "").strip()
+            if not name or f"images/{name}" in body:
+                continue  # 题干已含该图引用（手写）→ 去重
+            refs.append(f"![](images/{name})")
+        if refs:
+            body = f"{body}\n\n" + "\n\n".join(refs)
+    return body
 
 
 def copy_images(rec: dict, target_dir: Path) -> None:
