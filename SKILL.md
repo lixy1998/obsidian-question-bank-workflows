@@ -30,7 +30,6 @@ author: lixy1998
 
 - **过程性数据文件（一次性题库 JSON、临时生成脚本、图片缓存、中间产物等）严禁放入 skill 目录**——`scripts/` 只保留随 skill 分发的可复用脚本与 BOOK_INDEX 词表；`templates/` 只放模板；`references/` 只放参考文档；`workflow/` 只放流程文件
 - 题库录入的中间 JSON / 一次性 gen 脚本在题目入库（gen + scan 完成）后，**归档到工作区或删除**，不得留在 skill 内
-- 本机配置 `scripts/skill_config.json` 已入 `.gitignore`，不随仓库发布；`__pycache__/` 等缓存自动排除
 
 ## 资产位置
 
