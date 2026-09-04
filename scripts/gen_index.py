@@ -4,6 +4,7 @@
 每个索引 = 1 个册别 md：
   - 单元-课分组标题 手工编写（从 BOOK_INDEX 词表读取，保持词表一致）
   - 每课下 Dataview 按「课」字段自动筛选题目，新题自动出现
+  - 不生成 H1 册标题：册名由文件名承载（如 `8下-试题索引.md`），正文直接以 `## 单元` 起
 
 词表路径/册别-版本映射复用 qb_schema（BOOK_INDEX_PATH / BOOK_INDEX_VERSION），
 不重复硬编码；「学史方法」栏目由独立索引文档承载（1-MoC-索引/学史方法-试题索引.md），
@@ -78,7 +79,7 @@ def dv_query(册, 课名):
     safe = 课名.replace('"', '\\"')  # 兜底 ASCII 引号转义，当前词表无
     return (
         "```dataview\n"
-        "TABLE id AS 题号, 课, 知识点, 题型, 难度, 来源\n"
+        "TABLE id AS 题号, 课, 知识点, 题型, 素养层次水平, 关键能力\n"
         f"FROM {src}\n"
         f'WHERE contains(册别, "{册}") AND contains(课, "{safe}")\n'
         "SORT id ASC\n"
@@ -92,8 +93,6 @@ def build_index(册, 版本):
     L.append("---")
     L.append("tags: [MoC, 试题索引]")
     L.append("---")
-    L.append("")
-    L.append(f"# {册} 试题索引")
     L.append("")
     L.append(f"> 题库中 **{册}** 全部试题，按教材「单元-课」分组呈现。")
     L.append("> - 单元-课分组标题为**手工编写**（与 BOOK_INDEX 课名词表一致）；每课下的题目由 **Dataview 按「课」字段自动筛选**——新题录入后自动出现在对应课下，无需改本页。")
