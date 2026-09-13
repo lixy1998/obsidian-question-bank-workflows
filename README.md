@@ -18,7 +18,7 @@
 ## 目录结构
 
 ```
-Obsidian历史题库搭建/
+obsidian-question-bank-workflows/
 ├── SKILL.md                    # 技能主文档（三流程操作手册）
 ├── README.md
 ├── LICENSE                     # CC BY-NC-SA 4.0

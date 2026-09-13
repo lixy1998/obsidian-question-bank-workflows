@@ -7,7 +7,7 @@
 >
 > ---
 >
-> **BOOK_INDEX（题库受控词表副本）**：本文件为「Obsidian历史题库搭建」skill 的课名/子目校验数据源，复制自 skill「Obsidian 中学历史教学库助手」的 `lesson_titles.md`（2026-08-22）。`qb_schema.py` 的 `load_book_index()` 按 `BOOK_INDEX_VERSION` 册别映射解析对应版本节生成「册别→课名」映射：7上/7下→`2024版`节、8上/8下→`2025版`节、9上/9下→`2026版`节（按教材首印定版年份，2026-08-24 定稿）；未映射册别（高中）不参与题库校验。与 lesson_titles.md 保持同步：**改此文件请同步改 skill 原文件，反之亦然**。
+> **BOOK_INDEX（题库受控词表副本）**：本文件为「Obsidian历史题库搭建与组卷」skill 的课名/子目校验数据源，复制自 skill「Obsidian 中学历史教学库助手」的 `lesson_titles.md`（2026-08-22）。`qb_schema.py` 的 `load_book_index()` 按 `BOOK_INDEX_VERSION` 册别映射解析对应版本节生成「册别→课名」映射：7上/7下→`2024版`节、8上/8下→`2025版`节、9上/9下→`2026版`节（按教材首印定版年份，2026-08-24 定稿）；未映射册别（高中）不参与题库校验。与 lesson_titles.md 保持同步：**改此文件请同步改 skill 原文件，反之亦然**。
 
 ## 初中
 

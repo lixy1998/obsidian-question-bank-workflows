@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""setup.py — Obsidian历史题库搭建 首次配置引导（写入 skill 内 skill_config.json）。
+"""setup.py — Obsidian历史题库搭建与组卷 首次配置引导（写入 skill 内 skill_config.json）。
 
 用法：
   python setup.py --vault <路径> [--init]   # 写入配置；--init 顺便建库（六类别目录+模板）
@@ -60,7 +60,7 @@ def init_vault(vault: str) -> None:
 
 
 def interactive() -> None:
-    print("=== Obsidian历史题库搭建 首次配置 ===")
+    print("=== Obsidian历史题库搭建与组卷 首次配置 ===")
     print("请提供题库库（Obsidian vault）根目录路径；")
     print("没有现成题库库的话，可以直接给一个想新建的路径，我会自动建库。")
     vault = input("vault 路径（回车取消）: ").strip().strip('"').strip("'")
@@ -75,7 +75,7 @@ def interactive() -> None:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Obsidian历史题库搭建 首次配置")
+    ap = argparse.ArgumentParser(description="Obsidian历史题库搭建与组卷 首次配置")
     ap.add_argument("--vault", help="题库库根目录路径（写入配置）")
     ap.add_argument("--init", action="store_true", help="建库（六类别目录+模板）")
     ap.add_argument("--show", action="store_true", help="显示当前配置")
