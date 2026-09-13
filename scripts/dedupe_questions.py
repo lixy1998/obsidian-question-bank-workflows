@@ -330,18 +330,17 @@ def cmd_check(args) -> None:
         print(f"⚠ [{label}] 命中 {len(scored)} 条疑似，Top{min(len(scored), args.top)}：")
         for sim, lvl, it in scored[:args.top]:
             print(f"   · {lvl}（相似度 {sim:.2f}）→ {it['rel']}"
-                  f" ｜ {it['fm'].get('课')} ｜ 答案 {it['fm'].get('答案')}")
+                  f" ｜ {'、'.join(as_list(it['fm'].get('课')))} ｜ 答案 {it['fm'].get('答案')}")
         print(f"   → 若判为同题：跑 `--merge <库内主题.md> --with <本题入库后的 md> --apply`，本题不入库")
     print(f"\n预检完成：{len(records)} 题，{hit_total} 题命中疑似重复")
 
 
 # ---------------- 合并 ----------------
 
-def render_field(key: str, value) -> tuple:
-    """渲染单字段 YAML 行（复用 dump_yaml 的标量/列表/块渲染规则）→ (首行, [续行...])。"""
+def render_field(key: str, value) -> list:
+    """渲染单字段 YAML 行（复用 dump_yaml 的标量/列表/块渲染规则）→ [首行, 续行...]。"""
     block = dump_yaml({key: value}).splitlines()
-    inner = [ln for ln in block if ln not in ("---",)]
-    return inner[0], inner[1:]
+    return [ln for ln in block if ln != "---"]
 
 
 def replace_field(fm_raw: str, key: str, value) -> str:
@@ -388,7 +387,7 @@ def unique_image_name(theme_dir: Path, theme_seq: str, src_name: str, taken: set
 
 def cmd_merge(args) -> None:
     theme_path = Path(args.merge)
-    alias_paths = [Path(s.strip()) for s in args.with_ if s.strip()]
+    alias_paths = [Path(s.strip()) for s in (args.with_ or "").split(",") if s.strip()]
     if not theme_path.exists():
         sys.exit(f"[失败] 主题文件不存在：{theme_path}")
     for ap in alias_paths:
@@ -462,7 +461,9 @@ def cmd_merge(args) -> None:
     print(f"  来源：{as_list(theme_fm.get('来源'))} → {new_src}")
     for f, v in union_new.items():
         print(f"  {f}：追加 {[x for x in v if x not in as_list(theme_fm.get(f))]}")
-    print(f"  解析：追加 {len(entries)} 行「一题多卷」备注")
+    print(f"  解析：追加 {len(entries)} 行「一题多卷」备注：")
+    for e in entries:
+        print(f"    {e['yaml_note']}")
     print(f"  正文：追加图片引用 {img_refs if img_refs else '（无）'}")
     for e in entries:
         print(f"别名：{e['file']}")
