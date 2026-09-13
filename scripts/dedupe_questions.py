@@ -36,9 +36,9 @@ from hashlib import sha1
 from pathlib import Path
 
 from qb_schema import (ARCHIVE_DUP_SUBDIR, ARCHIVE_ROOT, DEDUPE_LOG_DIR, VAULT,
-                       as_list, authority_key, dump_yaml, is_question_file,
-                       norm_for_dedupe, source_pairs, split_frontmatter,
-                       stage_roots, strip_comments)
+                       _yaml_scalar, as_list, authority_key, dump_yaml,
+                       is_question_file, norm_for_dedupe, source_pairs,
+                       split_frontmatter, stage_roots, strip_comments)
 
 # 合并时取并集的字段（主题在前）
 UNION_FIELDS = ["册别", "单元", "课", "小节", "知识点",
@@ -344,26 +344,33 @@ def render_field(key: str, value) -> list:
 
 
 def replace_field(fm_raw: str, key: str, value) -> str:
-    """在 frontmatter 原文中替换/追加某字段（保留其余字段与风格，改动最小）。"""
-    head, *cont = render_field(key, value)
+    """在 frontmatter 原文中替换/追加某字段（保留其余字段与风格，改动最小）。
+
+    ⚠ 存量题库的 list 字段有**块状**（`key:` 换行后顶格 `- 值`）与流式（`key: [值]`）两种写法：
+    旧值清理必须同时吞掉「缩进行」与「顶格 `- ` 行」，否则残留行会破坏 YAML（2026-09-13 实测踩坑）。
+    渲染时跟随原字段风格（原为块状则仍写块状），让 diff 最小。
+    """
     lines = fm_raw.splitlines()
-    out, i, n = [], 0, len(lines)
-    found = False
-    while i < n:
-        if lines[i].startswith(key + ":"):
-            found = True
-            out.append(head)
-            out.extend(cont)
-            i += 1
-            # 吞掉旧值：缩进行（含列表项、| 块）
-            while i < n and (lines[i][:1] in (" ", "\t")):
-                i += 1
-            continue
-        out.append(lines[i])
-        i += 1
-    if not found:
-        out.extend([head] + cont)
-    return "\n".join(out)
+    start = end = None
+    for i, ln in enumerate(lines):
+        if ln.startswith(key + ":"):
+            start = i
+            j = i + 1
+            while j < len(lines) and (lines[j][:1] in (" ", "\t")
+                                      or lines[j].lstrip().startswith("- ")):
+                j += 1
+            end = j
+            break
+    blocky = bool(start is not None and end and end > start + 1
+                  and lines[start + 1].lstrip().startswith("- "))
+    if blocky and isinstance(value, (list, tuple)):
+        head, cont = f"{key}:", [f"- {_yaml_scalar(x)}" for x in value]
+    else:
+        rendered = render_field(key, value)
+        head, cont = rendered[0], rendered[1:]
+    if start is None:
+        return "\n".join(lines + [head] + cont)
+    return "\n".join(lines[:start] + [head] + cont + lines[end:])
 
 
 def append_body_images(body: str, refs: list) -> str:
@@ -472,9 +479,15 @@ def cmd_merge(args) -> None:
         print("\n[dry-run] 加 --apply 执行；执行前请确认权威序与差异说明无误。")
         return
 
-    # 写主题
+    # 写主题 + 立即自检 frontmatter（防静默破坏；此时尚未归档，修正后可直接重试）
     theme_path.write_text(f"---\n{fm_new}\n---\n\n"
                           f"{append_body_images(theme_body, img_refs).strip()}\n", encoding="utf-8")
+    chk_fm, _, chk_err = split_frontmatter(theme_path.read_text(encoding="utf-8"))
+    if chk_err or not chk_fm.get("id"):
+        print(f"❌ 主题 frontmatter 校验失败：{chk_err or '缺少 id 字段'}\n"
+              f"   主题 YAML 已改动、别名尚未归档；请手工修正该文件后重试", file=sys.stderr)
+        sys.exit(1)
+    print(f"[自检] 主题 frontmatter 解析正常：id={chk_fm.get('id')}")
     # 复制图片
     for e in entries:
         for it in e["images"]:

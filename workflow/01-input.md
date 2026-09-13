@@ -96,6 +96,9 @@ python dedupe_questions.py --check <卷_选择题.json>     # 写 JSON 后、gen
 
 **安全线**：别名题移入 `{vault}/_归档/重复题/`（不删除）；日志 `{vault}/.dedupe/YYYY-MM-DD.json` 支持 `--rollback`；别名卷留 `_重复题清单.md` 供还原。
 
+**合并后必看自检**：脚本写盘后自动解析主题 frontmatter，输出 `[自检] 主题 frontmatter 解析正常：id=[…]`；若出现 `❌ 主题 frontmatter 校验失败`（此时别名**尚未归档**），手工修正该文件后重试即可，不会留下半成品。
+**批量合并**：逐对跑 `--merge --apply`，每对确认自检行；全部完成后 `scan_questions.py`（应「✓ 无问题」）+ `--list-merged`（核对 id 多值）复核。
+
 ## 铁律（录入专属）
 
 1. **答案/解析只进 YAML frontmatter，正文只放题干+选项/材料**——学生卷安全由此保证
