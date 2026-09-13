@@ -11,6 +11,7 @@
 - ✅ **课名受控词表**：BOOK_INDEX 按教材版本（2024/2025/2026 版人教版）逐册校验，杜绝错字漏字
 - ✅ **素养双轴标注**：核心素养（课标 5 素养）+ 关键能力（郑林 9 要素 A1-C3），受控词表保证标签一致
 - ✅ **双链路录入**：扫描件走 MinerU（可选），文字版 docx/PPT/md 直读免 OCR
+- ✅ **一题多卷去重**（v1.3.0）：同一道题被多卷收录时只存权威版本一份，`id` 多值记录全部出处；别名题归档留痕，可回滚
 - ✅ **脚本全自动化**：JSON → 生成单题 md → 全库校验 → 组卷导出，一条命令链
 
 ## 目录结构
@@ -22,14 +23,21 @@ Obsidian历史题库搭建/
 ├── LICENSE                     # CC BY-NC-SA 4.0
 ├── templates/
 │   └── 历史试题模板.md           # 单题模板（初始化时复制到 vault）
+├── workflow/
+│   ├── 00-init.md              # 首次使用引导
+│   ├── 01-input.md             # 流程一 录入（含查重与合并）
+│   ├── 02-compose.md           # 流程二 组卷/出题
+│   └── 03-check.md             # 流程三 校验与词表维护（含查重体检）
 ├── references/
-│   ├── fields.md               # 字段详解 + JSON 模板 + 卷名命名约定
+│   ├── fields.md               # 字段详解 + JSON 模板 + 卷名命名约定 + 一题多卷与去重
 │   ├── book_index.md           # BOOK_INDEX 结构与维护
-│   └── 素养能力词表.md           # 素养/层次水平/能力受控词表（唯一权威）
+│   ├── 素养能力词表.md           # 素养/层次水平/能力受控词表（唯一权威）
+│   └── 试卷排版规范.md           # 成卷版式规范
 └── scripts/
-    ├── qb_schema.py            # 公共模块：词表 + 路径规则 + 校验
+    ├── qb_schema.py            # 公共模块：词表 + 路径规则 + 校验 + 权威序
     ├── gen_problem.py          # JSON → 单题 md
-    ├── scan_questions.py       # 全库校验（必填/枚举/课名/正文非空）
+    ├── scan_questions.py       # 全库校验（必填/枚举/课名/正文非空/id 多值）
+    ├── dedupe_questions.py     # 查重 + 一题多卷合并（scan/check/merge/rollback）
     ├── export_student_paper.py # 组卷导出（学生/教师双版）
     ├── gen_index.py            # 由 BOOK_INDEX 生成六册试题索引
     ├── read_docx.py            # docx 结构化提取（免 MinerU）
@@ -65,12 +73,14 @@ cp templates/历史试题模板.md "$TNOTE_VAULT/0-Template-模板/"
 
 ```bash
 cd scripts
-python gen_problem.py 卷_选择题.json          # JSON → 单题 md
+python dedupe_questions.py --check 卷_选择题.json   # ① 入库前查重（逐题返回库内疑似 Top-3）
+python gen_problem.py 卷_选择题.json               # ② JSON → 单题 md
 python gen_problem.py 卷_非选择题.json
-python scan_questions.py --卷 <卷名>          # 输出「✓ 无问题」才交付
+python scan_questions.py --卷 <卷名>               # ③ 输出「✓ 无问题」才交付
 ```
 
-JSON 字段规范见 `references/fields.md`（含选择题/材料题/小论文模板与多值示例）。
+- **查重命中怎么办**：判为同题 → `dedupe_questions.py --merge <库内主卷.md> --with <本题.md> --apply`（本题不重复入库，`id` 多值记录两卷出处）；判为不同题 → 照常入库
+- JSON 字段规范见 `references/fields.md`（含选择题/材料题/小论文模板与多值示例）
 
 ### 3. 组卷
 
@@ -85,9 +95,10 @@ python export_student_paper.py --卷 <来源卷> --only 01,03,05 --模式 教师
 ## 文档
 
 - **操作手册**：`SKILL.md` — 录入/组卷/校验三流程、铁律、陷阱清单
-- **字段规范**：`references/fields.md` — YAML 字段表、JSON 模板、卷名命名约定
+- **字段规范**：`references/fields.md` — YAML 字段表、JSON 模板、卷名命名约定、**一题多卷与去重（判定流水线 + 合并规则）**
 - **词表维护**：`references/book_index.md` — BOOK_INDEX 结构、修订联动
 - **素养词表**：`references/素养能力词表.md` — 核心素养/层次水平/关键能力受控词表
+- **成卷版式**：`references/试卷排版规范.md` — 卷头/大题/选项/图片/答案卷/字体规范
 
 ## 来源与许可
 
@@ -102,5 +113,7 @@ python export_student_paper.py --卷 <来源卷> --only 01,03,05 --模式 教师
 **Q：需要配 MinerU 吗？** 仅扫描版 PDF/图片需要。文字版 docx/PPT/md 走直读链路，无需任何外部服务。
 
 **Q：原创题/改编题怎么存？** 不新建目录，靠「来源」多值标签区分（如 `[8上教材第1课, 教材改编]`），改编题「年份」写改编年份。
+
+**Q：同一道题被两套卷收录（如中考真题被期末卷原样收录）怎么办？** 走「一题多卷」：`dedupe_questions.py --check` 预检 → 裁定 → `--merge` 把两卷 id 并入库内主卷（`id` 多值、`来源` 成对平铺），别名题归档到 `_归档/重复题/` 并留卷内 `_重复题清单.md`，全程日志可 `--rollback`。判定与合并规则见 `references/fields.md`「一题多卷与去重」。
 
 **Q：词表怎么维护？** 词表条目就地修订后按 `references/book_index.md` 的「修订联动」清单排查（存量题课字段重映射 + 重跑 gen_index），只改词表不动关联项 = 不完整修订。

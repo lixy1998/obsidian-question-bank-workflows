@@ -22,10 +22,12 @@ from qb_schema import (SchemaError, build_body, copy_images, dump_yaml,
                        question_dir, question_path, validate_lesson,
                        validate_record)
 
-LIST_FIELDS = ["册别", "单元", "课", "小节", "知识点", "核心素养",
+LIST_FIELDS = ["id", "册别", "单元", "课", "小节", "知识点", "核心素养",
                "素养层次水平", "关键能力", "选项", "来源"]
 # 教材定位字段（册别/单元/课）支持多值：单值 str 或分号分隔字符串自动转 list，
 # 与 小节/知识点 一致，用于跨册别/跨单元/跨课的综合题标注。
+# id 亦为多值（v1.3.0 起）：首项 = 主卷 id，其后为「收录本题的其他卷-题号」（一题多卷），
+# 单值字符串会自动转为 [单值] 列表，与既有存量数据（单值 str）兼容。
 
 
 def parse_list(value):
@@ -53,7 +55,8 @@ def normalize(rec: dict) -> dict:
     if not rec.get("id"):
         src = rec.get("来源") or []
         first = src[0] if isinstance(src, list) and src else (src or rec["卷名"])
-        rec["id"] = f"{first}-{rec['序号']}"
+        # 多值（v1.3.0）：首项 = 主卷 id；其后由 dedupe_questions.py 合并时追加别名 id
+        rec["id"] = [f"{first}-{rec['序号']}"]
     return rec
 
 

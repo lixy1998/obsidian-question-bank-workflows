@@ -2,7 +2,8 @@
 """scan_questions.py — 题库健康检查 + 统计。
 
 - 扫描 {vault}/初中-*/高中-* 目录下全部单题 md
-- 校验：必填字段、id 唯一性、受控枚举（册别/题型/难度）、正文非空
+- 校验：必填字段、id 唯一性（多值逐项）、受控枚举（册别/题型/难度）、正文非空
+- v1.3.0 新增：一题多卷交叉校验（别名 id 不应再作为独立题存在）
 - 输出：总量统计 + 按册别/题型/难度分布 + 问题清单
 
 用法：
@@ -19,8 +20,8 @@ from collections import Counter
 from pathlib import Path
 
 from qb_schema import (BOOKS, DIFFICULTIES, REQUIRED_FIELDS, TYPES,
-                       VAULT, SchemaError, as_list, split_frontmatter,
-                       stage_roots, validate_lesson)
+                       VAULT, SchemaError, as_list, is_question_file,
+                       split_frontmatter, stage_roots, validate_lesson)
 
 try:
     import yaml
@@ -44,18 +45,24 @@ ZHENG_RE = re.compile(r"^[ABC][1-3]-")
 
 
 def dump(roots, only_vol: str = None):
-    """输出全量题目元数据（JSON 数组），供命令行检索/过滤（对应 SKILL.md 流程二）。"""
+    """输出全量题目元数据（JSON 数组），供命令行检索/过滤（对应 SKILL.md 流程二）。
+
+    id 多值（一题多卷）时分列：`id` 原样、`题号`=首项（主卷 id）、`别名`=其余收录卷 id。
+    """
     out = []
     for root in roots:
         for p in sorted(root.rglob("*.md")):
-            if p.name == "README.md" or p.name.endswith(("_学生版.md", "_教师版.md")):
+            if not is_question_file(p):
                 continue
             if only_vol and only_vol not in p.parts:
                 continue
             fm, _, _ = split_frontmatter(p.read_text(encoding="utf-8"))
             rel = p.relative_to(Path(VAULT)).parts
+            ids = as_list(fm.get("id"))
             out.append({
                 "id": fm.get("id"),
+                "题号": ids[0] if ids else None,
+                "别名": ids[1:],
                 "册别": fm.get("册别"), "课": fm.get("课"),
                 "题型": fm.get("题型"), "难度": fm.get("难度"),
                 "来源": fm.get("来源"), "年份": fm.get("年份"),
@@ -69,9 +76,11 @@ def scan(roots, only_vol: str = None):
     problems, stats = [], Counter()
     seen_ids, total = {}, 0
     old_ks_count = 0  # 关键能力仍为徐奉先旧格式的题数（提示级，不计入 problems）
+    merged = []       # [(rel, 主卷 id, [别名 id, ...]), ...] 一题多卷题
+    primary_ids = {}  # 主卷 id -> rel（用于别名交叉校验）
     for root in roots:
         for p in sorted(root.rglob("*.md")):
-            if p.name == "README.md" or p.name.endswith(("_学生版.md", "_教师版.md")):
+            if not is_question_file(p):
                 continue
             if only_vol and only_vol not in p.parts:
                 continue  # --卷 过滤：只保留路径中含该卷名的文件
@@ -84,13 +93,22 @@ def scan(roots, only_vol: str = None):
             for f in REQUIRED_FIELDS:
                 if _empty(fm.get(f)):
                     problems.append(f"[缺字段 {f}] {rel}")
-            # id 唯一
-            qid = fm.get("id")
-            if qid:
+            # id 唯一（多值逐项；id 列表内部重复也算问题）
+            ids, inner_dup = [], set()
+            for qid in as_list(fm.get("id")):
+                if qid in ids:
+                    inner_dup.add(qid)
+                ids.append(qid)
                 if qid in seen_ids:
                     problems.append(f"[id重复 {qid}] {rel}（先见于 {seen_ids[qid]}）")
                 else:
                     seen_ids[qid] = rel
+            for qid in inner_dup:
+                problems.append(f"[id列表内重复 {qid}] {rel}")
+            if len(ids) > 1:
+                merged.append((rel, ids[0], ids[1:]))
+            if ids:
+                primary_ids.setdefault(ids[0], rel)
             # 枚举（册别支持多值，逐项校验）
             for b in as_list(fm.get("册别")):
                 if b not in BOOKS:
@@ -125,7 +143,15 @@ def scan(roots, only_vol: str = None):
                 stats[f"素养层次水平::{s}"] += 1
             for s in as_list(fm.get("关键能力")):
                 stats[f"关键能力::{s}"] += 1
-    return total, stats, problems, old_ks_count
+    # 一题多卷交叉校验（v1.3.0）：别名 id 若仍作为独立题的主卷 id 存在 → 该别名题尚未归档
+    for rel, pid, aliases in merged:
+        for a in aliases:
+            if a in primary_ids:
+                problems.append(
+                    f"[别名未归档 {a}] {rel}（该 id 仍作为独立题存在于 {primary_ids[a]}，"
+                    f"应跑 dedupe_questions.py --merge 归档别名题）")
+    stats["一题多卷::多值id题数"] = len(merged)
+    return total, stats, problems, old_ks_count, merged
 
 
 def main():
@@ -144,17 +170,21 @@ def main():
         dump(roots, args.卷)
         return
 
-    total, stats, problems, old_ks_count = scan(roots, args.卷)
+    total, stats, problems, old_ks_count, merged = scan(roots, args.卷)
 
     if args.json:
         print(json.dumps({"total": total, "stats": dict(stats),
-                          "problems": problems, "old_ks_count": old_ks_count},
+                          "problems": problems, "old_ks_count": old_ks_count,
+                          "merged": [{"文件": str(r), "主卷id": pid, "别名id": al}
+                                     for r, pid, al in merged]},
                          ensure_ascii=False, indent=2))
         return
 
     print(f"═══ 历史题库健康检查 ═══")
     print(f"题库路径：{VAULT}（{' '.join(r.name for r in roots)}）")
     print(f"题目总数：{total}")
+    if merged:
+        print(f"一题多卷：{len(merged)} 题含别名 id（多卷收录同一题，已归档别名题）")
     for k in ("册别", "题型", "难度", "来源", "核心素养", "素养层次水平", "关键能力"):
         items = [(suffix, c) for key, c in stats.items() if key.startswith(f"{k}::")
                  for suffix in [key.split("::", 1)[1]]]

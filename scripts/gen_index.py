@@ -74,6 +74,10 @@ def dv_query(册, 课名):
     """Dataview DQL 函数语法：`contains(字段, 值)`，参数必须双引号。
     纠正先前错误理解：CONTAINS 不是 DQL 操作符而是函数，技能示例的「字段 CONTAINS 值」写法不被 Dataview parser 识别。
     中文引号（“”）在双引号字符串内是普通字符，无害。
+
+    ⚠ id 为多值 list（一题多卷，v1.3.0 起）：题号列直接显示 `id`——多卷收录的题会显示
+    「主卷id, 别名卷id」一串，正是所需信息；**排序不能用 `SORT id`（对 list 排序语义不明）**，
+    改用 `SORT file.name ASC`（文件名=零填充序号，等价于按题号排序）。
     """
     src = " OR ".join(f'"{s}"' for s in DATA_SOURCES)
     safe = 课名.replace('"', '\\"')  # 兜底 ASCII 引号转义，当前词表无
@@ -82,7 +86,7 @@ def dv_query(册, 课名):
         "TABLE id AS 题号, 课, 知识点, 题型, 素养层次水平, 关键能力\n"
         f"FROM {src}\n"
         f'WHERE contains(册别, "{册}") AND contains(课, "{safe}")\n'
-        "SORT id ASC\n"
+        "SORT file.name ASC\n"
         "```"
     )
 

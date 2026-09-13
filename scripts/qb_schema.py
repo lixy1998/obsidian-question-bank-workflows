@@ -323,3 +323,83 @@ def split_frontmatter(text: str):
 def strip_comments(body: str) -> str:
     """移除正文中的 HTML 注释块（模板使用说明）。"""
     return re.sub(r"<!--.*?-->", "", body, flags=re.S).strip()
+
+
+# ---- 一题多卷与去重（v1.3.0 起）----
+# id 为多值 list：**首项 = 主卷 id**（本题文件所在卷），其余 = 收录本题的其他卷「卷名-题号」。
+#   例：id: [2024河南中考-08, 河南省实验中学2025-2026学年8上期末-03]
+# 重复题以主卷为准唯一存题，别名题归档到 {vault}/_归档/重复题/（详见 workflow/01-input.md「查重与合并」）
+ARCHIVE_ROOT = "_归档"            # vault 根下归档目录（不在 初中-*/高中-* 内，scan 天然不扫描）
+ARCHIVE_DUP_SUBDIR = "重复题"      # 归档根下子目录
+DEDUPE_LOG_DIR = ".dedupe"        # 合并日志目录（vault 根下）
+
+# 权威序（判「以谁为准」，数值越小越权威；同级按年份早者优先）
+# 一级：类别目录（中/高考真题 0 > 中/高考模拟 1 > 阶段测试 2）
+AUTHORITY_CATEGORY = {"1中考真题": 0, "1高考真题": 0,
+                      "2中考模拟题": 1, "2高考模拟题": 1, "3阶段测试": 2}
+# 二级：阶段测试卷名细分（期末早于期中/月考）
+AUTHORITY_PATTERNS = [(0, r"一模|二模|三模|联考|模拟"), (1, r"期末"), (2, r"期中|月考|单元|阶段")]
+
+
+def is_question_file(p) -> bool:
+    """题库题目文件判定：排除 README、导出卷（_学生版/_教师版）与下划线前缀辅助文件
+    （如 `_重复题清单.md`）；归档目录因不在 初中-*/高中-* 下，无需额外排除。"""
+    p = Path(p)
+    if p.name == "README.md" or p.name.startswith("_"):
+        return False
+    if p.name.endswith(("_学生版.md", "_教师版.md")):
+        return False
+    return True
+
+
+def authority_key(rec: dict, path=None) -> tuple:
+    """一题多卷的权威序比较键（元组越小越优先，用于挑选主卷）。
+
+    序：中/高考真题(0) > 中/高考模拟(1) > 阶段测试(2)；同级按考试类型细分
+    （模拟：一模/二模/联考 0 > 期末 1 > 期中/月考 2）；再按**年份早者优先**；最后按卷名、题号稳定排序。
+    `path` 传入题目文件路径时按路径推断类别，否则回退 rec["类别"]。
+    """
+    cat = None
+    if path is not None:
+        for part in Path(path).parts:
+            for c, lvl in AUTHORITY_CATEGORY.items():
+                if part.endswith(c):
+                    cat = lvl
+                    break
+            if cat is not None:
+                break
+    if cat is None:
+        cat = AUTHORITY_CATEGORY.get(str(rec.get("类别", "")), 9)
+    vol = str(rec.get("卷名", ""))
+    sub = 9
+    for lvl, pat in AUTHORITY_PATTERNS:
+        if re.search(pat, vol):
+            sub = lvl
+            break
+    try:
+        year = int(rec.get("年份"))
+    except (TypeError, ValueError):
+        year = 9999
+    return (cat, sub, year, vol, str(rec.get("序号", "")))
+
+
+def norm_for_dedupe(s: str) -> str:
+    """查重归一化：去图片引用/分值括注/题号、全角转半角、去全部标点空白、英文小写。
+
+    只保留汉字与 ASCII 字母数字——用于「一字之差」级别的同题比对（L1 精确指纹）。
+    """
+    import unicodedata
+    s = re.sub(r"!\[\]\([^)]*\)", "", s or "")
+    s = re.sub(r"[（(]\s*\d+\s*分\s*[)）]", "", s)
+    s = unicodedata.normalize("NFKC", s).lower()
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]", "", s)
+
+
+def source_pairs(rec: dict) -> list:
+    """把「来源」多值列表解析为 [(卷名, 类型标签), ...]（成对平铺约定）。
+
+    `来源: [主卷名, 主类型, 别名卷名, 别名类型]` → [("主卷名","主类型"), ("别名卷名","别名类型")]。
+    奇数长度时末项单独成对（类型留空），保证不丢信息。
+    """
+    src = as_list(rec.get("来源"))
+    return [(src[i], src[i + 1] if i + 1 < len(src) else "") for i in range(0, len(src), 2)]

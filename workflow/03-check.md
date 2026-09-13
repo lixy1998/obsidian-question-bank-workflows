@@ -8,6 +8,20 @@
 
 `python scan_questions.py`（必填字段/id 唯一/枚举/课名词表/正文非空 + 统计；**关键能力旧格式为提示级**——存量徐奉先 3×3 标注迁移未完成时输出 `ℹ` 提示，不计入「✓ 无问题」）；`--json` 机器可读
 
+- **id 多值校验（v1.3.0）**：id 为 list 时逐项查重（含列表内自重复）；并做**一题多卷交叉校验**——别名 id（第 2 项起）若仍作为独立题存在于库中，报 `[别名未归档]`（提示该跑 `dedupe_questions.py --merge`）
+- 输出中的「一题多卷：N 题含别名 id」为信息行，非问题
+
+## 查重体检（v1.3.0 起，建议每次批量录入后跑）
+
+```bash
+python dedupe_questions.py --scan --out <工作区>/疑似重复清单_YYYYMMDD.md   # 全库查重 → 候选清单
+python dedupe_questions.py --list-merged                                   # 已合并题一览（id 多值）
+```
+
+- 命中候选 → 走 L4 AI 裁定 + L5 用户裁定（判定规则见 `references/fields.md`「一题多卷与去重」）
+- 合并/回滚一律经 `dedupe_questions.py --merge / --rollback`（默认 dry-run，`--apply` 才写盘）
+- ⚠ **禁止手工删除重复题**：手工删除不写日志、不更新别名 id、不留卷内清单，无法回滚也无法还原原卷
+
 ## 词表校准
 
 scan 定位「课名词表」问题 → 写一次性映射脚本（`{字段}: {旧值}` 行替换）或对照 BOOK_INDEX 手动 Edit；反复场景写通用重映射脚本或直接 Edit md 的 YAML 字段
