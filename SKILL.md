@@ -1,8 +1,8 @@
 ---
 name: Obsidian历史题库搭建
 description: Obsidian 历史题库建设——「每道题一个文件」：正文只放题干/选项/材料，答案与解析藏 YAML frontmatter。
-触发词：历史题库、题库搭建、录入题库、录入题目/试题、录入到题库、出题、组卷、出一套卷子、BOOK_INDEX、课名词表、题库质量检查、查重、题目重复、一题多卷、去重。
-version: 1.3.0
+触发词：历史题库、题库搭建、录入题库、录入题目/试题、录入到题库、出题、组卷、出一套卷子、BOOK_INDEX、课名词表、题库质量检查、查重、题目重复、一题多卷、去重、试卷排版、成卷版式、图文混排。
+version: 1.4.0
 license: CC BY-NC-SA 4.0
 author: lixy1998
 ---
@@ -21,6 +21,7 @@ author: lixy1998
 | 录入题库（录入到题库、录入题目/试题） | `workflow/01-input.md` |
 | 查重 / 发现重复题 / 一题多卷合并 | `workflow/01-input.md`「查重与合并」+ `references/fields.md`「一题多卷与去重」 |
 | 组卷/出题（出题、组卷、出一套卷子、某范围检索） | `workflow/02-compose.md` |
+| 试卷排版 / 成卷版式 / 图文混排 | `references/试卷排版规范.md`（版式条款）+ `references/标准-试卷排版依据.md`（国标与实测依据）+ `references/试卷版式核验矩阵.md` |
 | 校验/词表维护（题库质量检查、scan、BOOK_INDEX 维护） | `workflow/03-check.md` |
 
 - **未检测到初始化**（`<skill>/scripts/skill_config.json` 无有效 vault 且无 `TNOTE_VAULT`）→ 先读 `workflow/00-init.md`，再回到对应流程文件
@@ -39,7 +40,7 @@ author: lixy1998
 | 资产 | 路径 |
 |---|---|
 | 题库库（Obsidian vault） | `{vault}/{学段}-{序号类别}/{卷名}/{卷名}_{题型}/{序号}.md`（如 `{vault}/初中-1中考真题/2026河南中考/…`；类别枚举见下） |
-| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / fix_arabic_numerals.py（中文数字→阿拉伯数字批量转换，覆盖题库 YAML / 词表两处）/ **setup.py（首次配置引导：写入 vault + 建库）** |
+| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / fix_arabic_numerals.py（中文数字→阿拉伯数字批量转换，覆盖题库 YAML / 词表两处）/ **setup.py（首次配置引导：写入 vault + 建库）** |
 | 课名词表（本 skill 内） | `<skill>/scripts/BOOK_INDEX.md`（唯一权威，随 skill 分发） |
 | 单题模板（本 skill 内） | `<skill>/templates/历史试题模板.md`（初始化时复制到 vault 模板目录） |
 | 本机配置（本 skill 内） | `<skill>/scripts/skill_config.json`（`{"vault": "..."}`；**已入 .gitignore，不随仓库发布**） |
@@ -76,4 +77,6 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
 - `references/fields.md` — 字段详解 + JSON 模板（选择题/材料题/小论文）+ 目录规则 + 卷名命名约定
 - `references/book_index.md` — BOOK_INDEX 结构与维护、9上9下核实状态
 - `references/素养能力词表.md` — 核心素养/素养层次水平/关键能力受控词表（唯一权威源；含 `⟦…⟧` 注记标记与注记剔除规则、初高中分轨（初中层次1-3、高中水平1-4）+标注规则、郑林 9 要素主词表+徐奉先对照映射、字段检索示例）
-- `references/试卷排版规范.md` — **成卷版式规范**（卷头/大题结构/小题连续编号/选项断行/材料题版式/图片处理/答案卷/字体/文件命名/组卷适配操作），md 卷与 Word 卷均适用；题面信息标注格式另见「历史原创命题」语言规范第六节
+- `references/试卷排版规范.md` — **成卷版式规范**（§一~六 卷头/大题/小题编号/选项/材料题/答案卷 惯例层；**§七 字号·行空·纸张 国标合规层**；§八~九 组卷适配与命名；**§十 图文混排规范**；§十一 交付前自检），md 卷与 Word 卷均适用；题面信息标注格式另见「历史原创命题」语言规范第六节
+- `references/标准-试卷排版依据.md` — **排版依据层**：强制/推荐/惯例三档清单、GB 40070-2021 §7 条文与数值、"行空"口径核证、河南中考卷实测对照、**纸张与折页规格**（8/6/4 开长条、三折 6 页、单页 185×260mm）、Word 实施参数
+- `references/试卷版式核验矩阵.md` — **条款 ↔ 依据 ↔ 实现 ↔ 核验方式**（脚本/人工/印制三态），与 `verify_paper_layout.py` 的检查项编号一一对应
