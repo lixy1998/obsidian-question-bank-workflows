@@ -117,6 +117,10 @@ def validate_record(rec: dict) -> None:
 # ---- BOOK_INDEX 课名词表 ----
 BOOK_INDEX_PATH = Path(__file__).parent / "BOOK_INDEX.md"
 _BOOK_CACHE = None
+_METHOD_CACHE = None
+# 学史方法（全六册）课名前缀：课名写作 `学史方法-<完整方法名>`，
+# 校验只查方法名是否在「## 初中·学史方法（全六册）」15 表内（不按册别，见 load_method_names）
+METHOD_PREFIX = "学史方法-"
 
 # 册别 -> 校验用词表版本节（按教材首印定版年份；首用后仅小修订、目录无变化，不建新版词表）
 # 7上/7下 2024 首印定版（2024版）；8上/8下 2025 首印定版（2025版）；9上/9下 2026 首印定版（2026版）
@@ -163,24 +167,67 @@ def load_book_index() -> dict:
     return index
 
 
+def load_method_names() -> set:
+    """解析 BOOK_INDEX「初中·学史方法（全六册）」表格 → {方法名, ...}。
+
+    该栏目不属于任何册别词表节，以表格总列 15 个方法（`## 初中·学史方法（全六册）`，
+    行形如 `| 1 | 如何从出土文物中获取信息 | 7上 |`）。题库课名规范写作
+    `学史方法-<完整方法名>`，校验时只比对方法名（**不按册别**）。
+    """
+    global _METHOD_CACHE
+    if _METHOD_CACHE is not None:
+        return _METHOD_CACHE
+    names = set()
+    if BOOK_INDEX_PATH.exists():
+        in_sec = False
+        for line in BOOK_INDEX_PATH.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if s.startswith("## ") and "学史方法" in s:
+                in_sec = True
+                continue
+            if in_sec and s.startswith("## "):
+                break  # 下一节（如 ## 高中）
+            if in_sec:
+                m = re.match(r"^\|\s*\d+\s*\|\s*([^|]+?)\s*\|", s)
+                if m:
+                    names.add(m.group(1).strip())
+    _METHOD_CACHE = names
+    return names
+
+
 def validate_lesson(rec: dict) -> None:
-    """校验课名是否在 BOOK_INDEX 对应册别词表中（课/册别支持多值）。
+    """校验课名是否在 BOOK_INDEX 词表中（课/册别支持多值）。
 
     策略：
+    - `学史方法-<方法名>`：只校验方法名是否在「初中·学史方法（全六册）」15 表内（**不按册别**——
+      各册分配尚待确认，且中高考题常按「史事 + 方法维度」跨册标注，严格按册会误伤）；
     - 册别列表中某册别收录了词表（7上~9下按 BOOK_INDEX_VERSION 映射版本节）→ 该册别课程名须命中词表；
     - 册别列表中若存在未收录词表的册别（如 纲要上/选必1 等高中）→ 无法校验的课名视为通过（不误报）；
-    - 全部册别均未收录词表 → 跳过校验。
+    - 全部册别均未收录词表 → 跳过课名校验（学史方法的方法名校验不受此影响）。
     """
     books = as_list(rec.get("册别"))
     lessons = as_list(rec.get("课"))
     if not books or not lessons:
         return
+    methods = load_method_names()
+    rest = []
+    for lesson in lessons:
+        if lesson.startswith(METHOD_PREFIX):
+            name = lesson[len(METHOD_PREFIX):].strip()
+            if methods and name not in methods:
+                raise SchemaError(
+                    f"学史方法名不在 BOOK_INDEX「初中·学史方法（全六册）」表中：'{name}'"
+                    f"（共 {len(methods)} 个；规范写法 `{METHOD_PREFIX}<完整方法名>`）")
+            continue
+        rest.append(lesson)
+    if not rest:
+        return  # 全部课名都是学史方法 → 方法名校验已完成，跳过册别词表校验
     index = load_book_index()
     checked = {b: set(index.get(b, [])) for b in books if index.get(b)}
     if not checked:
         return  # 所有册别均无词表（高中等）→ 跳过
     has_free = any(b not in checked for b in books)  # 存在未收录词表的册别
-    for lesson in lessons:
+    for lesson in rest:
         if any(lesson in s for s in checked.values()):
             continue
         if has_free:
