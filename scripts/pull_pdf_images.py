@@ -23,7 +23,7 @@ import argparse
 import sys
 from pathlib import Path
 
-import pymupdf  # PyMuPDF；主环境已装，勿用 venv
+import pymupdf  # PyMuPDF；venv 与主环境均已装（2026-09-14 实测 `import fitz` 通过）
 
 
 def main():

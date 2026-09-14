@@ -16,7 +16,7 @@
     冲突以官方扫描件为准，差异在题库「解析」字段注明（针对题目本身存在问题的情况）。
   - docx 图片常不完整（如选择题图片选项被吞成 "A.B.C.D."），
     缺图从同目录官方 PDF 用 pull_pdf_images.py 裁剪补图。
-  - 运行环境：主环境 python（已装 python-docx）。venv 无 docx 库，勿用 venv 跑。
+  - 运行环境：venv 或主环境均可（2026-09-14 实测受管 venv 已装 python-docx，可直接用 venv 解释器执行）
 """
 import argparse
 import sys

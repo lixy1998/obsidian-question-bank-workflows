@@ -10,8 +10,9 @@
 2. **命令行引导**：`python scripts/setup.py`（交互式，可新建）或 `python scripts/setup.py --vault <路径> --init`（一键写入+建库）
 3. **兼容通道（可选）**：环境变量 `TNOTE_VAULT` 优先级最高（Windows `setx TNOTE_VAULT "D:/Documents/TNote"`；macOS/Linux 写入 shell 配置）
 4. **Python 依赖**：
-   - 核心流程（写 JSON → gen → scan → export）只需 `pyyaml`：`pip install pyyaml`
+   - 核心流程（写 JSON → gen → scan → export → 分析统计）只需 `pyyaml`：`pip install pyyaml`
    - 链路B 扩展（可选）：`pip install python-docx pymupdf python-pptx`（docx 直读 / PDF 裁剪补图 / PPT 提取）
+   - ⚡ **受管 venv 已装齐**（`~/.workbuddy/binaries/python/envs/default/`，含 pyyaml / python-docx / pymupdf，2026-09-14 实测）→ 全部脚本可直接用该 venv 解释器执行；若报 `ModuleNotFoundError` 再按上两行安装
 5. **建库**：`--init` 自动建六类别目录 + 复制模板到 `{vault}/0-Template-模板/`；已建库的跳过
 6. **可选：MinerU 服务**（仅扫描版 PDF/图片需要，链路A）：安装 `mineru-open-api` CLI 并配置 token（`~/.mineru/config.yaml`）；文字版文件（docx/PPT/md）走链路B 免 MinerU
 

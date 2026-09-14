@@ -2,7 +2,7 @@
 
 > 面向中学历史教师的 Obsidian 题库建设方案——「**每道题一个文件**」：正文只放题干/选项/材料，**答案与解析藏在 YAML frontmatter**，学生卷导出安全由此保证。
 
-管理历史题库的三大流程：**存题**（扫描件/文字版文件批量入库）、**校题**（BOOK_INDEX 课名词表自动校验）、**组卷**（按册别/单元/课/知识点检索 → 用户圈定 → 导出学生/教师双版）。
+覆盖历史题库**全生命周期的五个流程**：**存**（扫描件/文字版批量录入，含查重去重）、**校**（BOOK_INDEX 课名词表 + 定位字段对齐校验）、**取**（按册别/单元/课/知识点检索 → 用户圈定 → 导出学生/教师双版）、**研**（单课考查方向分析 / 册别考试范围分析 → 教学取舍与复习优先级报告）。
 
 ## 特性
 
@@ -21,7 +21,7 @@
 
 ```
 Obsidian历史题库搭建与组卷/
-├── SKILL.md                    # 技能主文档（三流程操作手册）
+├── SKILL.md                    # 技能主文档（存/校/取/研五流程操作手册）
 ├── README.md
 ├── LICENSE                     # CC BY-NC-SA 4.0
 ├── templates/
@@ -30,18 +30,22 @@ Obsidian历史题库搭建与组卷/
 │   ├── 00-init.md              # 首次使用引导
 │   ├── 01-input.md             # 流程一 录入（含查重与合并）
 │   ├── 02-compose.md           # 流程二 组卷/出题（含版式合规自检）
-│   └── 03-check.md             # 流程三 校验与词表维护（含查重体检）
+│   ├── 03-check.md             # 流程三 校验与词表维护（含定位字段提示）
+│   ├── 04-lesson-analysis.md   # 流程四 单课考查方向分析（v1.6.0）
+│   └── 05-range-analysis.md    # 流程五 册别/学段考试范围分析（v1.6.0）
 ├── references/
-│   ├── fields.md               # 字段详解 + JSON 模板 + 卷名命名约定 + 一题多卷与去重
-│   ├── book_index.md           # BOOK_INDEX 结构与维护
+│   ├── fields.md               # 字段详解 + JSON 模板 + 卷名命名约定 + 多值录入判据 + 一题多卷与去重
+│   ├── book_index.md           # BOOK_INDEX 结构与维护（含单元层级与修订联动）
 │   ├── 素养能力词表.md           # 素养/层次水平/能力受控词表（唯一权威）
 │   ├── 试卷排版规范.md           # 成卷版式（国标合规层 + 原卷惯例层 + 图文混排）
 │   ├── 标准-试卷排版依据.md       # 标准依据（强制/推荐/惯例三档 + 河南中考实测）
-│   └── 试卷版式核验矩阵.md        # 条款 ↔ 依据 ↔ 实现 ↔ 核验方式
+│   ├── 试卷版式核验矩阵.md        # 条款 ↔ 依据 ↔ 实现 ↔ 核验方式
+│   └── 分析基线-洛阳.md          # 实测对照基线（课次热度/卷面结构/分值口径）
 └── scripts/
-    ├── qb_schema.py            # 公共模块：词表 + 路径规则 + 校验 + 权威序
+    ├── qb_schema.py            # 公共模块：词表（课名+单元层级）+ 路径规则 + 校验 + 权威序
+    ├── setup.py                # 首次配置引导（写入 vault 配置 + 建库）
     ├── gen_problem.py          # JSON → 单题 md
-    ├── scan_questions.py       # 全库校验（必填/枚举/课名/正文非空/id 多值）
+    ├── scan_questions.py       # 全库校验（必填/枚举/课名/正文非空/id 多值/定位字段提示）
     ├── dedupe_questions.py     # 查重 + 一题多卷合并（scan/check/merge/rollback）
     ├── verify_paper_layout.py  # 试卷版式校验器（docx 字号行距 / 卷结构层）
     ├── export_student_paper.py # 组卷导出（学生/教师双版）
@@ -49,7 +53,10 @@ Obsidian历史题库搭建与组卷/
     ├── read_docx.py            # docx 结构化提取（免 MinerU）
     ├── pull_pdf_images.py      # 从官方 PDF 裁剪补图
     ├── fix_arabic_numerals.py  # 中文数字 → 阿拉伯数字批量转换
-    └── BOOK_INDEX.md           # 课名受控词表（六册：7上~9下）
+    ├── scan_lesson.py          # 流程四：按课取题统计（--口径 主考/兼涉/全涉）
+    ├── scan_missed.py          # 流程四：关键词反查（正文含词但未标该课）
+    ├── scan_volume.py          # 流程五：册别/卷别聚合（范围判定 + 课次热度三梯队）
+    └── BOOK_INDEX.md           # 课名受控词表（初中六册 7上~9下 + 高中五册纲要/选必）
 ```
 
 ## 快速开始
@@ -63,7 +70,7 @@ setx TNOTE_VAULT "D:/Documents/TNote"        # Windows（新开终端生效）
 
 # ② 安装 Python 依赖
 pip install pyyaml                             # 核心流程必需
-pip install python-docx pymupdf python-pptx    # 可选：docx 直读 / PDF 补图 / PPT 提取
+pip install python-docx pymupdf python-pptx    # 可选：docx 直读 / PDF 补图 / PPT 提取（受管 venv 通常已装，先 `import` 验一下）
 
 # ③ 复制单题模板到 vault 模板目录
 cp templates/历史试题模板.md "$TNOTE_VAULT/0-Template-模板/"
@@ -99,6 +106,21 @@ python verify_paper_layout.py --docx "<成卷.docx>"   # 版式校验（有「�
 
 > `--only` 只导出用户圈定的题号；学生版自动剥离答案与解析。成卷后按 `references/试卷排版规范.md` 定版：正文 **宋体 12pt（小四）+ 固定行距 24pt** 方可满足 GB 40070-2021 的强制下限；页面可选 A4 打印模式或 185×260mm 中考仿真模式。
 
+### 4. 研题（考查方向 / 考试范围分析）
+
+```bash
+# 流程四 · 单课考查方向（取题 → 统计 → 归纳方向 → 出报告）
+python scripts/scan_lesson.py --lesson "第5课 古代希腊" --口径 主考     # 口径：主考 / 兼涉 / 全涉
+python scripts/scan_lesson.py --lesson "第5课 古代希腊" --body          # 附题干全文
+python scripts/scan_missed.py "第5课 古代埃及" "金字塔|法老|尼罗河"      # 关键词反查：正文含词但未标该课
+
+# 流程五 · 册别/学段考试范围（范围判定 + 卷面结构 + 课次热度三梯队 + 能力素养分布）
+python scripts/scan_volume.py --册 9上
+python scripts/scan_volume.py --册 9上 --卷 "洛阳市2025-2026学年9上期末"
+```
+
+> 两个分析流程的**报告落点统一为 vault `3-试题研究/`**；对照基线（洛阳各册实测结论、分值口径）见 `references/分析基线-洛阳.md`。流程细节：`workflow/04-lesson-analysis.md`、`workflow/05-range-analysis.md`。
+
 ## 文档
 
 - **操作手册**：`SKILL.md` — 存/校/取/研五流程、铁律、陷阱清单
@@ -112,14 +134,16 @@ python verify_paper_layout.py --docx "<成卷.docx>"   # 版式校验（有「�
 
 ## 来源与许可
 
-- 课名词表（BOOK_INDEX）依据人民教育出版社 2024/2025/2026 版初中历史教材（按教材首印定版年份命名版本节；9 下部分子目标注 `[?]` 待实物确认）
+- 课名词表（BOOK_INDEX）依据人民教育出版社 2024/2025/2026 版初中历史教材（按教材首印定版年份命名版本节；**9 下已于 2026-08-27 据教材实物核对，子目全部确认**）与统编高中教材（纲要上下 + 选必 1-3，仅用于定位字段校验）
 - 素养词表依据《义务教育历史课程标准（2022年版）》《普通高中历史课程标准（2017年版2020年修订）》及郑林「历史学科能力 3 层次 9 要素」、徐奉先 3×3 能力框架整理
 - 代码与文档采用 **CC BY-NC-SA 4.0**（署名-非商业性使用-相同方式共享），详见 `LICENSE`
 - 作者：**教历史的史知行**（微信公众号「教历史的史知行」）
 
 ## FAQ
 
-**Q：不用 Obsidian 能用吗？** 核心流程（录入→校验→组卷）只依赖 Python + 题库目录，Obsidian 仅用于人工浏览/检索（Bases/Dataview 查询）与手工补录（Templater 模板）。
+**Q：不用 Obsidian 能用吗？** 核心流程（录入→校验→组卷→分析）只依赖 Python + 题库目录，Obsidian 仅用于人工浏览/检索（Bases/Dataview 查询）与手工补录（Templater 模板）。
+
+**Q：能回答「这一课考什么」「这本书期末考什么」吗？** 能，且是基于题库实证而非经验判断——见「4. 研题」：`scan_lesson.py`（单课，可切主考/兼涉/全涉口径）+ `scan_volume.py`（册别，含范围判定与课次热度三梯队），流程与报告结构见 `workflow/04-lesson-analysis.md`、`workflow/05-range-analysis.md`。
 
 **Q：需要配 MinerU 吗？** 仅扫描版 PDF/图片需要。文字版 docx/PPT/md 走直读链路，无需任何外部服务。
 
