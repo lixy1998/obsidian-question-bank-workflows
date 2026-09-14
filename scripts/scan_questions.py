@@ -4,6 +4,7 @@
 - 扫描 {vault}/初中-*/高中-* 目录下全部单题 md
 - 校验：必填字段、id 唯一性（多值逐项）、受控枚举（册别/题型/难度）、正文非空
 - v1.3.0 新增：一题多卷交叉校验（别名 id 不应再作为独立题存在）
+- v1.5.0 新增：定位字段提示（课的所属单元/册别是否写进本题 单元/册别 字段，提示级）
 - 输出：总量统计 + 按册别/题型/难度分布 + 问题清单
 
 用法：
@@ -21,7 +22,8 @@ from pathlib import Path
 
 from qb_schema import (BOOKS, DIFFICULTIES, REQUIRED_FIELDS, TYPES,
                        VAULT, SchemaError, as_list, is_question_file,
-                       split_frontmatter, stage_roots, validate_lesson)
+                       split_frontmatter, stage_roots, validate_lesson,
+                       load_lesson_units, METHOD_PREFIX)
 
 try:
     import yaml
@@ -78,6 +80,11 @@ def scan(roots, only_vol: str = None):
     old_ks_count = 0  # 关键能力仍为徐奉先旧格式的题数（提示级，不计入 problems）
     merged = []       # [(rel, 主卷 id, [别名 id, ...]), ...] 一题多卷题
     primary_ids = {}  # 主卷 id -> rel（用于别名交叉校验）
+    locator_hits = []  # 定位字段提示：[rel, 缺单元 set, 缺册别 set]（提示级，不计入 problems）
+    # 课名 -> [(册别, 单元全称), ...]（多值录入兜底：课的所属单元/册别应写进本题对应字段）
+    lesson2loc = {}
+    for (b, name), u in load_lesson_units().items():
+        lesson2loc.setdefault(name, []).append((b, u))
     for root in roots:
         for p in sorted(root.rglob("*.md")):
             if not is_question_file(p):
@@ -122,6 +129,23 @@ def scan(roots, only_vol: str = None):
                 validate_lesson(fm)
             except SchemaError as e:
                 problems.append(f"[课名词表] {e}（{rel}）")
+            # 定位字段提示（v1.5.0）：课的所属单元/册别是否写进本题的 单元/册别 字段
+            # （多值录入兜底；提示级，不计入 problems）
+            _books, _units = set(as_list(fm.get("册别"))), set(as_list(fm.get("单元")))
+            miss_u, miss_b = set(), set()
+            for _k in as_list(fm.get("课")):
+                if str(_k).startswith(METHOD_PREFIX):
+                    continue
+                cands = lesson2loc.get(str(_k))
+                if not cands:
+                    continue  # 词表未收录（如高中自定义/新增课）→ 跳过，不误报
+                pick = next(((b, u) for b, u in cands if b in _books), cands[0])
+                if pick[1] not in _units:
+                    miss_u.add(pick[1])
+                if pick[0] not in _books:
+                    miss_b.add(pick[0])
+            if miss_u or miss_b:
+                locator_hits.append((str(rel), miss_u, miss_b))
             # 关键能力格式提示（郑林 A1-C3 主词表；徐奉先旧格式/无标注提示，存量迁移未完成）
             ks = as_list(fm.get("关键能力"))
             if ks and any(not ZHENG_RE.match(x) for x in ks):
@@ -151,7 +175,7 @@ def scan(roots, only_vol: str = None):
                     f"[别名未归档 {a}] {rel}（该 id 仍作为独立题存在于 {primary_ids[a]}，"
                     f"应跑 dedupe_questions.py --merge 归档别名题）")
     stats["一题多卷::多值id题数"] = len(merged)
-    return total, stats, problems, old_ks_count, merged
+    return total, stats, problems, old_ks_count, merged, locator_hits
 
 
 def main():
@@ -170,11 +194,13 @@ def main():
         dump(roots, args.卷)
         return
 
-    total, stats, problems, old_ks_count, merged = scan(roots, args.卷)
+    total, stats, problems, old_ks_count, merged, locator_hits = scan(roots, args.卷)
 
     if args.json:
         print(json.dumps({"total": total, "stats": dict(stats),
                           "problems": problems, "old_ks_count": old_ks_count,
+                          "locator_hits": [{"文件": r, "缺单元": sorted(u), "缺册别": sorted(b)}
+                                           for r, u, b in locator_hits],
                           "merged": [{"文件": str(r), "主卷id": pid, "别名id": al}
                                      for r, pid, al in merged]},
                          ensure_ascii=False, indent=2))
@@ -195,6 +221,18 @@ def main():
     if old_ks_count:
         print(f"\nℹ 关键能力旧格式提示：{old_ks_count} 题仍为徐奉先 3×3 旧标注"
               f"（郑林 A1-C3 迁移未完成，未计入问题；迁移映射见 references/素养能力词表.md 第三章）")
+    if locator_hits:
+        print(f"\nℹ 定位字段提示：{len(locator_hits)} 题的「课的所属单元/册别」未出现在本题 单元/册别 字段"
+              f"（多值录入兜底，提示级、未计入问题）")
+        for rel, miss_u, miss_b in locator_hits[:8]:
+            parts = []
+            if miss_b:
+                parts.append("缺册别 " + "、".join(sorted(miss_b)))
+            if miss_u:
+                parts.append("缺单元 " + "、".join(sorted(miss_u)))
+            print(f"  {rel}：{'；'.join(parts)}")
+        if len(locator_hits) > 8:
+            print(f"  …另有 {len(locator_hits) - 8} 题（--json 可看全量）")
     if problems:
         print(f"\n⚠ 问题 {len(problems)} 项：")
         for p in problems:

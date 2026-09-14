@@ -167,6 +167,63 @@ def load_book_index() -> dict:
     return index
 
 
+# 高中五册节标题 -> 册别缩写（BOOK_INDEX「### 统编·人教社」下的 #### 节，无版本节概念）
+GAOZHONG_SECTIONS = {
+    "中外历史纲要（上）": "纲要上",
+    "中外历史纲要（下）": "纲要下",
+    "选择性必修1 国家制度与社会治理": "选必1",
+    "选择性必修2 经济与社会生活": "选必2",
+    "选择性必修3 文化交流与传播": "选必3",
+}
+_UNIT_RE = re.compile(r"^- (第[0-9一二三四五六七八九十]+单元 .+)$")
+_LESSON_RE = re.compile(r"^ {2,}- (第\d+课 .+?)$")
+_UNIT_CACHE = None
+
+
+def load_lesson_units() -> dict:
+    """解析 BOOK_INDEX.md → {(册别, 课名): 单元全称}。
+
+    - 初中六册：只收 `BOOK_INDEX_VERSION` 指定的版本节（与 load_book_index 同口径）
+    - 高中五册：收「### 统编·人教社」下的五个 `####` 节（无版本节概念）
+    用途：校验时提示「课的所属单元/册别是否已写进该题的 单元/册别 字段」（多值录入兜底）。
+    """
+    global _UNIT_CACHE
+    if _UNIT_CACHE is not None:
+        return _UNIT_CACHE
+    out = {}
+    if not BOOK_INDEX_PATH.exists():
+        _UNIT_CACHE = out
+        return out
+    cur_book, in_target, cur_unit = None, False, None
+    for line in BOOK_INDEX_PATH.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^### (\S+)", line)
+        if m:
+            cur_book, in_target, cur_unit = m.group(1), False, None
+            continue
+        if line.startswith("#### "):
+            title = line[5:].strip()
+            ver = re.match(r"^(20\d\d版)", title)
+            if title in GAOZHONG_SECTIONS:
+                cur_book, in_target = GAOZHONG_SECTIONS[title], True
+            else:
+                # 仅本册别映射的版本节（如 "#### 2024版…"）才收录，其余版本节跳过
+                in_target = bool(cur_book and ver
+                                 and ver.group(1) == BOOK_INDEX_VERSION.get(cur_book))
+            cur_unit = None
+            continue
+        if not in_target or not cur_book:
+            continue
+        mu = _UNIT_RE.match(line)
+        if mu:
+            cur_unit = mu.group(1).strip()
+            continue
+        ml = _LESSON_RE.match(line)
+        if ml and cur_unit:
+            out[(cur_book, ml.group(1).strip())] = cur_unit
+    _UNIT_CACHE = out
+    return out
+
+
 def load_method_names() -> set:
     """解析 BOOK_INDEX「初中·学史方法（全六册）」表格 → {方法名, ...}。
 

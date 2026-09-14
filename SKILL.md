@@ -1,15 +1,17 @@
 ---
 name: Obsidian历史题库搭建与组卷
 description: Obsidian 历史题库建设——「每道题一个文件」：正文只放题干/选项/材料，答案与解析藏 YAML frontmatter。
-触发词：历史题库、题库搭建、题库维护、录入题库、录入题目/试题、录入到题库、出题、组卷、组卷排版、出一套卷子、BOOK_INDEX、课名词表、题库质量检查、查重、题目重复、一题多卷、去重、试卷排版、成卷版式、图文混排。
-version: 1.4.0
+触发词：历史题库、题库搭建、题库维护、录入题库、录入题目/试题、录入到题库、出题、组卷、组卷排版、出一套卷子、BOOK_INDEX、课名词表、题库质量检查、查重、题目重复、一题多卷、去重、试卷排版、成卷版式、图文混排、分析某课考查方向、某课考什么、归纳X课考点、结合题库看重点、某册期末考什么、考试范围分析、哪些课是重点、复习优先级、学困生/差生怎么提分、时间不够先放弃哪些。
+version: 1.6.0
 license: CC BY-NC-SA 4.0
 author: 教历史的史知行
 ---
 
 # Obsidian历史题库搭建与组卷
 
-管理Obsidian 历史题库：**存题**（录入，含查重）、**校题**（BOOK_INDEX 词表校验）、**组卷**（按条件检索→用户决定→出学生/教师卷）、**去重**（一题多卷合并，v1.3.0 起）。
+管理 Obsidian 历史题库的**全生命周期**：**存题**（录入，含查重）、**校题**（BOOK_INDEX 词表校验 + 定位字段对齐）、**组卷**（按条件检索→用户决定→出学生/教师卷）、**去重**（一题多卷合并，v1.3.0 起）、**研题**（单课考查方向 / 册别考试范围分析，v1.6.0 起并入）。
+
+> **不适用**：单道题的解析、与题库无关的教学设计（前者走「史料研读助手」/「历史原创命题」，后者走通用助手）。
 
 ## 按需加载（必读）
 
@@ -23,6 +25,9 @@ author: 教历史的史知行
 | 组卷/出题（出题、组卷、出一套卷子、某范围检索） | `workflow/02-compose.md` |
 | 试卷排版 / 成卷版式 / 图文混排 | `references/试卷排版规范.md`（版式条款）+ `references/标准-试卷排版依据.md`（国标与实测依据）+ `references/试卷版式核验矩阵.md` |
 | 校验/词表维护（题库质量检查、scan、BOOK_INDEX 维护） | `workflow/03-check.md` |
+| **单课考查方向分析**（某课考什么、归纳X课考点、命题规律） | `workflow/04-lesson-analysis.md` |
+| **册别/学段考试范围分析**（某册期末考什么、复习优先级、学困生提分） | `workflow/05-range-analysis.md` |
+| 分析对照基线（洛阳各册实测结论、分值口径） | `references/分析基线-洛阳.md` |
 
 - **未检测到初始化**（`<skill>/scripts/skill_config.json` 无有效 vault 且无 `TNOTE_VAULT`）→ 先读 `workflow/00-init.md`，再回到对应流程文件
 - 各流程文件自带**该环节专属铁律与陷阱**，跟随所在文件执行
@@ -40,11 +45,11 @@ author: 教历史的史知行
 | 资产 | 路径 |
 |---|---|
 | 题库库（Obsidian vault） | `{vault}/{学段}-{序号类别}/{卷名}/{卷名}_{题型}/{序号}.md`（如 `{vault}/初中-1中考真题/2026河南中考/…`；类别枚举见下） |
-| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / fix_arabic_numerals.py（中文数字→阿拉伯数字批量转换，覆盖题库 YAML / 词表两处）/ **setup.py（首次配置引导：写入 vault + 建库）** |
+| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / fix_arabic_numerals.py（中文数字→阿拉伯数字批量转换，覆盖题库 YAML / 词表两处）/ **setup.py（首次配置引导：写入 vault + 建库）** / **scan_lesson.py（按课取题统计，`--口径 主考\|兼涉\|全涉`）** / **scan_missed.py（关键词反查：正文含词但未标该课）** / **scan_volume.py（册别/卷别聚合：范围判定 + 课次热度三梯队 + 能力素养分布）** |
 | 课名词表（本 skill 内） | `<skill>/scripts/BOOK_INDEX.md`（唯一权威，随 skill 分发） |
 | 单题模板（本 skill 内） | `<skill>/templates/历史试题模板.md`（初始化时复制到 vault 模板目录） |
 | 本机配置（本 skill 内） | `<skill>/scripts/skill_config.json`（`{"vault": "..."}`；**已入 .gitignore，不随仓库发布**） |
-| Python | 运行环境矩阵：**venv**（pyyaml）跑 qb_schema / scan / gen_problem / export / gen_index / fix_arabic_numerals / setup；**主环境**跑 `read_docx.py`（python-docx）、`pull_pdf_images.py`（pymupdf）及 PPT/md 链路B 提取（python-pptx）——venv 未装这些依赖，勿用 venv 跑；依赖安装见「初始化」 |
+| Python | 运行环境矩阵：**默认 venv** 一把跑全部脚本——2026-09-14 实测 venv 已含 pyyaml / python-docx / pymupdf（`import fitz` 通过），故 qb_schema / scan / gen_problem / export / gen_index / fix_arabic_numerals / setup / **read_docx.py** / **pull_pdf_images.py** 均可用 venv 执行；若 venv 报 `ModuleNotFoundError`，再改用主环境（python-docx / pymupdf / python-pptx 链路B 提取备选），或按「初始化」装包 |
 
 **类别枚举**（学段-序号类别，原创/改编不占目录）：初中：`1中考真题 / 2中考模拟题 / 3阶段测试`；高中：`1高考真题 / 2高考模拟题 / 3阶段测试`。
 
@@ -54,7 +59,7 @@ author: 教历史的史知行
 
 YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水平/关键能力/题型/难度/分值/来源/年份/考区/答案/解析
 - 册别 11：7上~9下 + 纲要上/下 + 选必1-3；题型 6：选择题/材料解析题/论述题/综合探究题/小论文/填空题；难度 3：易/中/难
-- **多值字段**：`id/册别/单元/课/小节/知识点/核心素养/素养层次水平/关键能力` 均为 list，可多值；跨册别/跨单元/跨课综合题各字段填完整多值 list（主考点在前），单值 str 旧数据自动兼容
+- **定位三字段「多值优先」**（2026-09-14 起）：`id/册别/单元/课/小节/知识点/核心素养/素养层次水平/关键能力` 均为 list；其中 `册别/单元/课` **多值优先、不设项数上限**——**首项＝命题落点**（设问直接考查的课），其后依次为**兼涉项**（作背景/参照/结论被调用的课），三项**同序平铺**；兼涉项须在材料或设问中可指认。三口径检索：**主考**（首项）／**兼涉**（非首项）／**全涉**（任一命中）。判据与防滥约束见 `references/fields.md`「多值字段说明」；单值 str 旧数据自动兼容
 - **id 多值 = 一题多卷**：首项 = 主卷 id（本题文件所在卷），其后 = 收录本题的其他卷 id（如 `[2024河南中考-08, 河南省实验中学2025-2026学年8上期末-03]`）；重复题只在主卷存一份，别名题归档到 `_归档/重复题/`——**查重/合并一律用 `dedupe_questions.py`，禁止手工删题**（规则见 `references/fields.md`「一题多卷与去重」）
 - 课名必须与 BOOK_INDEX 对应册别词表一致（多值时课名须命中任一已列册别词表；含引号课名如「第3课 “开元盛世”」须用中文弯引号）；**学史方法**写 `学史方法-<完整方法名>`（六册共 15 个，见 BOOK_INDEX「初中·学史方法（全六册）」表；只校验方法名、不校验册别）
 - **核心素养/素养层次水平/关键能力**：受控词表见技能内 `references/素养能力词表.md`（唯一权威词表，条目 `⟦…⟧` 内为来源/示例注记，入库时只取 `⟦` 前内容、注记不写入 YAML）——核心素养=`素养-细目`（如 `[史料实证-史料信息的提取, 历史解释-史事的因果性阐释]`）；素养层次水平=初高中分轨（初中 `素养名称-层次N-体现`、高中 `素养名称-水平N-体现`，**不跨学段换算**）；关键能力=郑林 9 要素编号（如 `[A3-概括, B2-分析]`）
@@ -66,7 +71,7 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
 2. **Dataview DQL 语法**：无 `CONTAINS` 操作符；检索一律 `contains(字段, "值")` 函数语法；字符串字面量只认双引号——操作符写法或单引号参数必 PARSING FAILED；词表课名里的中文引号（“”）无害，勿误删
 3. **YAML list 两种风格并存**：存量题库的 list 字段既有**块状**（`key:` 换行后顶格 `- 值`）也有**流式**（`key: [值]`）写法；脚本改写字段时必须按原风格渲染、并完整吞掉旧值（**含顶格 `- ` 行**，只吞缩进行会残留成游离项直接破坏 YAML）——2026-09-13 dedupe merge 实测踩坑，已修复并加写盘自检
 
-> 各流程专属陷阱见对应流程文件（录入：YAML 特殊字符/材料题图片/第三方整理冲突；组卷：导出文件勿入库；校验：索引列由 gen_index.py 决定/录入组卷勿跑 gen_index.py）。
+> 各流程专属陷阱见对应流程文件（录入：YAML 特殊字符/材料题图片/第三方整理冲突/**JSON 三件套缺一不可**/**题干忠于原卷**/**选择题图片位置**；组卷：导出文件勿入库；校验：索引列由 gen_index.py 决定/录入组卷勿跑 gen_index.py/**定位字段提示须逐条补齐**）。
 
 ## References
 
@@ -74,6 +79,9 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
 - `workflow/01-input.md` — 流程一 录入（链路A/B、写 JSON、生成+校验、模板使用、**查重与合并**），含录入铁律与陷阱
 - `workflow/02-compose.md` — 流程二 组卷/出题（检索、列候选、export 出卷、册别索引），含组卷铁律与陷阱
 - `workflow/03-check.md` — 流程三 校验与词表维护（scan、词表校准、索引维护），含校验铁律与陷阱
+- `workflow/04-lesson-analysis.md` — 流程四 单课考查方向分析（三口径取题、漏标反查、7 节报告结构、报告落点 `3-试题研究/`），含分析铁律与陷阱
+- `workflow/05-range-analysis.md` — 流程五 册别/学段考试范围分析（范围判定、课次热度三梯队、材料题主线、学困生提分方案六节输出），含范围分析陷阱
+- `references/分析基线-洛阳.md` — 实测对照基线（洛阳九上期末课次热度/卷面结构/分值口径、单课侧基线），分析时先比对基线
 - `references/fields.md` — 字段详解 + JSON 模板（选择题/材料题/小论文）+ 目录规则 + 卷名命名约定
 - `references/book_index.md` — BOOK_INDEX 结构与维护、9上9下核实状态
 - `references/素养能力词表.md` — 核心素养/素养层次水平/关键能力受控词表（唯一权威源；含 `⟦…⟧` 注记标记与注记剔除规则、初高中分轨（初中层次1-3、高中水平1-4）+标注规则、郑林 9 要素主词表+徐奉先对照映射、字段检索示例）
