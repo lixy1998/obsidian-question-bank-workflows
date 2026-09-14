@@ -1,4 +1,4 @@
-# Obsidian 历史题库搭建
+# Obsidian历史题库搭建与组卷
 
 > 面向中学历史教师的 Obsidian 题库建设方案——「**每道题一个文件**」：正文只放题干/选项/材料，**答案与解析藏在 YAML frontmatter**，学生卷导出安全由此保证。
 
@@ -134,6 +134,7 @@ python scripts/scan_volume.py --册 9上 --卷 "洛阳市2025-2026学年9上期�
 
 ## 来源与许可
 
+- **技能名与仓库名**：本技能显示名与本地目录名同为 `Obsidian历史题库搭建与组卷`；GitHub 仓库名为英文 [lixy1998/obsidian-question-bank-workflows](https://github.com/lixy1998/obsidian-question-bank-workflows)（旧址 `obsidian-history-question-bank` 301 重定向）
 - 课名词表（BOOK_INDEX）依据人民教育出版社 2024/2025/2026 版初中历史教材（按教材首印定版年份命名版本节；**9 下已于 2026-08-27 据教材实物核对，子目全部确认**）与统编高中教材（纲要上下 + 选必 1-3，仅用于定位字段校验）
 - 素养词表依据《义务教育历史课程标准（2022年版）》《普通高中历史课程标准（2017年版2020年修订）》及郑林「历史学科能力 3 层次 9 要素」、徐奉先 3×3 能力框架整理
 - 代码与文档采用 **CC BY-NC-SA 4.0**（署名-非商业性使用-相同方式共享），详见 `LICENSE`
