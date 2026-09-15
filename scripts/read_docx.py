@@ -10,6 +10,7 @@
 输出：
   <输出目录>/<docx名>.md    结构化文本（题号/题干/选项/表格/图片引用/【答案】，按文档原顺序）
   <输出目录>/images/        提取的内嵌图片（按出现顺序 001.jpg / 001.png ...）
+                            格式守卫：原图为 TIFF/EMF/WMF 时自动转 PNG 落盘（Obsidian 不显示 TIFF）
 
 说明：
   - 文字版多来自第三方整理（zxls 等），必须与官方扫描件交叉核对关键项；
@@ -29,9 +30,43 @@ from docx.oxml.ns import qn
 
 EXT_BY_TYPE = {
     "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif",
-    "image/bmp": "bmp", "image/tiff": "tiff", "image/x-emf": "emf",
-    "image/x-wmf": "wmf",
+    "image/webp": "webp", "image/bmp": "bmp",
+    "image/tiff": "tiff", "image/x-emf": "emf", "image/x-wmf": "wmf",
 }
+
+# Obsidian（Chromium 渲染）能直接显示的图片格式——TIFF 不在列，EMF/WMF 也不在。
+# ⚠ 2026-09-15 立：docx 内嵌 TIFF 图片曾一路存成 .tiff 入库，Obsidian 里全是破图。
+#   此处做第一道格式守卫：不在白名单的一律转 PNG 再落盘。
+DISPLAYABLE = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"}
+
+
+def to_png(blob):
+    """不可显示格式的图片字节 → PNG 字节；转换失败返回 None（调用方原样保留并告警）。"""
+    try:
+        import io
+        from PIL import Image
+        with Image.open(io.BytesIO(blob)) as im:
+            if im.mode in ("RGBA", "LA", "P"):
+                im = im.convert("RGBA")
+            elif im.mode not in ("L", "RGB"):
+                im = im.convert("RGB")
+            buf = io.BytesIO()
+            im.save(buf, "PNG")
+            return buf.getvalue()
+    except Exception:
+        pass
+    try:
+        # Pillow 兜底失败时用 cv2——个别 TIFF 的 IFD（Photometric/ExtraSamples 不匹配）
+        # 会让 Pillow 报 "cannot identify image file"，但文件本身完好
+        import cv2
+        import numpy as np
+        arr = cv2.imdecode(np.frombuffer(blob, np.uint8), cv2.IMREAD_UNCHANGED)
+        if arr is None:
+            return None
+        ok, buf = cv2.imencode(".png", arr)
+        return buf.tobytes() if ok else None
+    except Exception:
+        return None
 
 
 def iter_blocks(doc):
@@ -51,8 +86,17 @@ def _extract_para_images(paragraph, doc, img_dir, counter, sink):
             continue
         part = doc.part.related_parts[rid]
         ext = EXT_BY_TYPE.get(getattr(part, "content_type", ""), "bin")
+        blob = part.blob
+        if ext not in DISPLAYABLE:          # TIFF/EMF/WMF/bin → PNG（Obsidian 不显示这些）
+            png = to_png(blob)
+            if png is not None:
+                print(f"[格式] {ext} → png（Obsidian 不显示 {ext}）", file=sys.stderr)
+                blob, ext = png, "png"
+            else:
+                print(f"[警告] {ext} 转换失败，原样输出；Obsidian 里可能显示为破图，"
+                      f"入库前请手工转换", file=sys.stderr)
         name = f"{counter:03d}.{ext}"
-        (img_dir / name).write_bytes(part.blob)
+        (img_dir / name).write_bytes(blob)
         sink.append(f"![](images/{name})")
         counter += 1
     return counter

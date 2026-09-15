@@ -11,7 +11,8 @@
 参数：
   --page N   1 起始页码
   --rect "x0,y0,x1,y1"   裁剪矩形，坐标为页面宽高的相对值（0~1，左上原点）
-  --out 文件名           输出文件
+  --out 文件名           输出文件；后缀决定格式，建议 .png（文字/线稿无损）或 .jpg（照片类，体积小）
+                         ⚠ 写成 .tiff/.tif/.emf 等 Obsidian 不显示的格式时，脚本自动改存 .png 并提示
   --scale N              渲染倍率（默认 4，越高越清晰）
 
 流程建议：
@@ -24,6 +25,10 @@ import sys
 from pathlib import Path
 
 import pymupdf  # PyMuPDF；venv 与主环境均已装（2026-09-14 实测 `import fitz` 通过）
+
+# Obsidian（Chromium 渲染）能直接显示的图片格式——TIFF 不在列。
+# ⚠ 2026-09-15 立：本脚本按 --out 后缀决定格式，曾有人写 .tiff 导致入库后全是破图。
+DISPLAYABLE = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"}
 
 
 def main():
@@ -58,6 +63,12 @@ def main():
                         r.x0 + r.width * max(x0, x1), r.y0 + r.height * max(y0, y1))
     pix = page.get_pixmap(matrix=pymupdf.Matrix(args.scale, args.scale), clip=clip)
     out_path = Path(args.out)
+    ext = out_path.suffix.lower().lstrip(".")
+    if ext not in DISPLAYABLE:
+        fixed = out_path.with_suffix(".png")
+        print(f"[格式] 后缀 .{ext} 在 Obsidian 中不显示（TIFF 等），输出已改为 {fixed.name}；"
+              f"如需 .jpg 请直接写 .jpg", file=sys.stderr)
+        out_path = fixed
     out_path.parent.mkdir(parents=True, exist_ok=True)
     pix.save(str(out_path))
     print(f"[输出] {out_path}（{pix.width}x{pix.height}，页{args.page} 区域 {clip}）")
