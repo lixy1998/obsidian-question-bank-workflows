@@ -135,9 +135,13 @@ BOOK_INDEX_VERSION = {
 def load_book_index() -> dict:
     """解析 BOOK_INDEX.md 各册别对应版本节 → {册别缩写: [课名全称, ...]}。
 
-    每个册别只收录 `BOOK_INDEX_VERSION` 指定的版本节（如 7上/7下 的 2024版节、
-    8上/8下 的 2025版节、9上/9下 的 2026版节）内的「第X课/活动课」行；册别缩写如 9上/9下。
-    未在映射内的册别（高中）不参与题库校验。
+    - 初中六册：只收录 `BOOK_INDEX_VERSION` 指定的版本节（如 7上/7下 的 2024版节、
+      8上/8下 的 2025版节、9上/9下 的 2026版节）内的「第X课/活动课」行。
+    - 高中五册：收录「### 统编·人教社」下的五个 `####` 节（无版本节概念），
+      册别缩写为 纲要上/纲要下/选必1/选必2/选必3。
+
+    2026-09-17 起高中五册纳入课名校验（此前仅初中六册参与，高中题的课名长期
+    躲过机器校验，只能靠 load_lesson_units 的单元归属间接印证）。
     """
     global _BOOK_CACHE
     if _BOOK_CACHE is not None:
@@ -153,11 +157,15 @@ def load_book_index() -> dict:
         if m:
             cur_book, in_target = m.group(1), False
             continue
-        if re.match(r"^#### ", line):
-            # 仅当本册别映射的版本节（如 "#### 2024版…"）才收录，其余版本/高中节跳过
-            ver = re.match(r"^#### (20\d\d版)", line)
-            in_target = bool(cur_book and ver
-                             and ver.group(1) == BOOK_INDEX_VERSION.get(cur_book))
+        if line.startswith("#### "):
+            title = line[5:].strip()
+            ver = re.match(r"^(20\d\d版)", title)
+            if title in GAOZHONG_SECTIONS:
+                cur_book, in_target = GAOZHONG_SECTIONS[title], True
+            else:
+                # 仅当本册别映射的版本节（如 "#### 2024版…"）才收录，其余版本节跳过
+                in_target = bool(cur_book and ver
+                                 and ver.group(1) == BOOK_INDEX_VERSION.get(cur_book))
             continue
         if in_target and cur_book:
             m2 = re.match(r"^ {0,2}- (第\d+课 .+|活动课 .+)", line)  # 活动课顶格、正课缩进2格
