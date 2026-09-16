@@ -46,7 +46,7 @@ author: 教历史的史知行
 | 资产 | 路径 |
 |---|---|
 | 题库库（Obsidian vault） | `{vault}/{学段}-{序号类别}/{卷名}/{卷名}_{题型}/{序号}.md`（如 `{vault}/初中-1中考真题/2026河南中考/…`；类别枚举见下） |
-| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / fix_arabic_numerals.py（中文数字→阿拉伯数字批量转换，覆盖题库 YAML / 词表两处）/ **setup.py（首次配置引导：写入 vault + 建库）** / **scan_lesson.py（按课取题统计，`--口径 主考\|兼涉\|全涉`）** / **scan_missed.py（关键词反查：正文含词但未标该课）** / **scan_volume.py（册别/卷别聚合：范围判定 + 课次热度三梯队 + 能力素养分布）** / **fix_image_formats.py（图片格式巡检修复：把 Obsidian 不显示的格式转成 jpg/png、同步改 md 引用、原图入回收站；默认只读巡检，`--fix` 出计划、`--fix --apply` 执行）** |
+| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / **verify_against_source.py（录入后回归自检：入库正文 ↔ MinerU 源文本 归一化逐题比对，--源/--卷/--忽略，退出码 1 可阻断）** / fix_arabic_numerals.py（中文数字→阿拉伯数字批量转换，覆盖题库 YAML / 词表两处）/ **setup.py（首次配置引导：写入 vault + 建库）** / **scan_lesson.py（按课取题统计，`--口径 主考\|兼涉\|全涉`）** / **scan_missed.py（关键词反查：正文含词但未标该课）** / **scan_volume.py（册别/卷别聚合：范围判定 + 课次热度三梯队 + 能力素养分布）** / **fix_image_formats.py（图片格式巡检修复：把 Obsidian 不显示的格式转成 jpg/png、同步改 md 引用、原图入回收站；默认只读巡检，`--fix` 出计划、`--fix --apply` 执行）** |
 | 课名词表（本 skill 内） | `<skill>/scripts/BOOK_INDEX.md`（唯一权威，随 skill 分发） |
 | 单题模板（本 skill 内） | `<skill>/templates/历史试题模板.md`（初始化时复制到 vault 模板目录） |
 | 本机配置（本 skill 内） | `<skill>/scripts/skill_config.json`（`{"vault": "..."}`；**已入 .gitignore，不随仓库发布**） |
@@ -70,7 +70,15 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
 
 1. **Obsidian 锁文件**：库打开时图片复制可能 WinError 32，脚本幂等跳过；重试即可
 2. **Dataview DQL 语法**：无 `CONTAINS` 操作符；检索一律 `contains(字段, "值")` 函数语法；字符串字面量只认双引号——操作符写法或单引号参数必 PARSING FAILED；词表课名里的中文引号（“”）无害，勿误删
-3. **YAML list 两种风格并存**：存量题库的 list 字段既有**块状**（`key:` 换行后顶格 `- 值`）也有**流式**（`key: [值]`）写法；脚本改写字段时必须按原风格渲染、并完整吞掉旧值（**含顶格 `- ` 行**，只吞缩进行会残留成游离项直接破坏 YAML）——2026-09-13 dedupe merge 实测踩坑，已修复并加写盘自检
+3. **YAML list 两种风格并存**：存量题库的 list 字段既有**块状**（`key:` 换行后顶格 `- 值`）也有**流式**（`key: [值]`）写法；脚本改写字段时必须按原风格渲染、并完整吞掉旧值（**含顶格 `- ` 行**，只吞缩进行会残留成游离项直接破坏 YAML）——2026-09-13 dedupe merge 实测踩坑，已修复并加写盘自检。
+   - **改写多值定位字段的通用做法（2026-09-17 河南高考 40 题实测）**：
+     - **先探测风格**：`^册别: \[` 命中＝流式；`^册别:\s*\n[ \t]*- ` 命中＝块状。**同一批题可能混风格**（实测 39 流式 + 1 块状），须逐文件探测、不可整批假定。
+     - **块状缩进不一定是顶格**：实测原文件为 `  - `（2 空格），不能写死顶格——吞旧值的正则用 `[ \t]*- `、渲染时沿用探测到的缩进。
+     - **吞旧值正则**（两式并列尝试，命中即替换，末尾统一补 `\n`，**不要再多加一个**否则产生空行）：
+       `^{key}: \[[^\]]*\]\s*\n` ｜ `^{key}:\s*\n(?:[ \t]*- [^\n]*\n?)*`
+     - **校验判据别写错**：`单元` 在同单元多课时会去重，**项数常少于 `课`**；正确判据是「每课所属单元出现在 `单元` 列表」，**判两者等长会出大量假阳性**（实测误报 29 题）。
+     - `小节` 保留重复（一课多子目），项数可多于 `课`。
+     - **改完必做三重验证**：YAML 可解析 + 正文与备份逐字节比对零改动 + `scan_questions.py` 零报错。
 4. **图片格式：Obsidian 根本不显示 TIFF/EMF/WMF**（2026-09-15 立）：Chromium 不渲染 TIFF，库里存了 `*.tiff` 就是一排破图，**2026-09-15 实测题库里积了 12 个**（9 个被引用 + 3 个孤儿）。
    - **源头已堵**：`read_docx.py`（docx 内嵌 TIFF 曾一路原样存成 `.tiff`）与 `pull_pdf_images.py`（按 `--out` 后缀决定格式）均已加**格式守卫**，不在白名单（jpg/jpeg/png/gif/webp/bmp/svg）的自动转 PNG。
    - **存量走** `scripts/fix_image_formats.py`：默认**只读巡检**，`--fix` 看计划，`--fix --apply` 才动手（转换 → 同步改引用 → 校验 → 原图入回收站，可 `--keep-original` 保留）。
@@ -78,7 +86,7 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
    - **转换后三件事**：① 按**绝对路径**改引用（同名图可能转成不同格式，只按文件名会改错）；md 语法与 wikilink 都要改、wikilink 的 `|尺寸` 后缀保留；② 原图**移入回收站**不直接删；③ 复检「新图可读 + 引用零断链」。
    - **读图兜底**：个别 TIFF 的 IFD 会让 Pillow 报 `cannot identify image file`（实测 `21_2.tiff`），文件其实完好——用 `cv2.imdecode(np.fromfile(p, np.uint8), IMREAD_UNCHANGED)` 可读（`np.fromfile` 同时绕开 cv2 不支持中文路径的问题）。
 
-> 各流程专属陷阱见对应流程文件（录入：YAML 特殊字符/材料题图片/第三方整理冲突/**JSON 三件套缺一不可**/**题干忠于原卷**/**选择题图片位置**；组卷：导出文件勿入库；校验：索引列由 gen_index.py 决定/录入组卷勿跑 gen_index.py/**定位字段提示须逐条补齐**；分析：**课次漂移按课名比对**/**主考与兼涉不可混算**/**分值口径 50 与 100 分制不可混**/**不要手写解析脚本**）。
+> 各流程专属陷阱见对应流程文件（录入：YAML 特殊字符/材料题图片/第三方整理冲突/**JSON 三件套缺一不可**/**题干忠于原卷**/**选择题图片位置**/**解析册栏目图标过滤**/**选项行 OCR 重灾区**/**疑字渲染复核**/**录入后归一化回归自检**；组卷：导出文件勿入库；校验：索引列由 gen_index.py 决定/录入组卷勿跑 gen_index.py/**定位字段提示须逐条补齐**；分析：**课次漂移按课名比对**/**主考与兼涉不可混算**/**分值口径 50 与 100 分制不可混**/**不要手写解析脚本**）。
 
 ## References
 
