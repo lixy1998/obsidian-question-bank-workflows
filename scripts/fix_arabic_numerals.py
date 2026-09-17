@@ -48,7 +48,7 @@ def fix_md(path: Path, fix_book: bool = True, fix_unit: bool = True) -> int:
 def main():
     if not VAULT.is_dir():
         print(f"⚠ 题库库目录不存在：{VAULT}")
-        print("请先设置 TNOTE_VAULT 环境变量指向 Obsidian 题库库根目录（如 TNOTE_VAULT=D:/Documents/TNote）")
+        print("请先设置 TNOTE_VAULT 环境变量指向 Obsidian 题库库根目录（如 TNOTE_VAULT=<题库库路径>）")
         return
     total = 0
     # 1. 题库 YAML（册别 + 单元）

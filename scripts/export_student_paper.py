@@ -7,7 +7,7 @@
 用法：
   python export_student_paper.py --卷 2026河南中考
   python export_student_paper.py --卷 2026河南中考 --模式 教师
-  python export_student_paper.py --卷 2026河南中考 --题型 选择题 --输出 D:/下载/2026河南中考_学生版.md
+  python export_student_paper.py --卷 2026河南中考 --题型 选择题 --输出 <输出目录>/2026河南中考_学生版.md
   python export_student_paper.py --卷 2026河南中考 --only 01,02,03 --排序 路径|id
 
 输出：默认 {卷目录}/{卷名}_学生版.md 或 _教师版.md

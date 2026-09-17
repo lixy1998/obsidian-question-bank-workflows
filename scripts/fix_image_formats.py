@@ -7,7 +7,7 @@
 用法：
   # ① 巡检（只读，不动任何文件）
   python fix_image_formats.py
-  python fix_image_formats.py --vault "D:/Documents/TNote"
+  python fix_image_formats.py --vault "<题库库路径>"
 
   # ② 修复（默认 dry-run，只打印计划）
   python fix_image_formats.py --fix
@@ -201,10 +201,15 @@ def to_recycle(paths):
     return rc
 
 
-def recycle_verify(paths, rec_root="D:/"):
-    """核对是否真进回收站：扫 $I / $R 记录（当前用户 SID 目录可读）"""
+def recycle_verify(paths, rec_root=None):
+    """核对是否真进回收站：扫 $I / $R 记录（当前用户 SID 目录可读）
+
+    盘符取各路径自身的 drive（相对路径先 resolve），仅在无法判定时才用 rec_root 兜底。
+    """
     names, sizes = set(), collections.defaultdict(set)
-    for drv in {Path(p).drive or rec_root for p in paths}:
+    for drv in {(Path(p).resolve().drive or rec_root) for p in paths}:
+        if not drv:
+            continue
         root = Path(drv + "/") / "$Recycle.Bin"
         if not root.is_dir():
             continue
