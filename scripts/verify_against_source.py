@@ -6,7 +6,7 @@
       出现其他差异 → 回查该题。
 
 用法：
-  python verify_against_source.py --源 "<MinerU导出.md>" --卷 2026河北高考 [--vault D:/Documents/TNote]
+  python verify_against_source.py --源 "<MinerU导出.md>" --卷 2026河北高考 [--vault <题库库路径>]
                                  [--阈值 0.985] [--差异数 8] [--全部]
 
   --卷   卷名（须与题库目录名一致）
