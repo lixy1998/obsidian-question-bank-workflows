@@ -7,11 +7,16 @@
 
 用法：
   python verify_against_source.py --源 "<MinerU导出.md>" --卷 2026河北高考 [--vault <题库库路径>]
-                                 [--阈值 0.985] [--差异数 8] [--全部]
+                                 [--阈值 0.985] [--差异数 8] [--全部] [--忽略 03,04]
+  python verify_against_source.py --源 "<含多卷的.md>" --列出卷   # 先勘察源文件里有哪些卷
 
-  --卷   卷名（须与题库目录名一致）
+  --卷   卷名（须与题库目录名一致）；**源文件含多卷时必填卷次数字以定位**，如「…综合检测卷3」→ 取源标题「综合测试(三)」
   --vault 题库根（默认读本 skill 的 scripts/skill_config.json，其次环境变量 TNOTE_VAULT）
   --全部 打印所有差异（默认每题最多 --差异数 条）
+
+多卷源文件（v1.7.1 起）：单文件含多卷时各卷题号都从 1 重新开始，本脚本**自动按一级标题
+  `# 卷名` 分段并定位到 --卷 对应的那一卷**，不再需要手工拆源。
+  ⚠ 定位失败会报错退出（不再静默回退）——静默回退正是旧版相似度暴跌 0.05~0.25 的根源。
 
 退出码：存在相似度低于阈值的题 → 1（可用于流水线阻断），否则 0。
 """
@@ -44,14 +49,90 @@ def load_vault(cli_vault=None):
     sys.exit(2)
 
 
-def split_source(text):
+def split_volumes(text):
+    """把源 md 按**卷级一级标题**切成有序列表 [{标题: str, 正文: str}, ...]。
+
+    ⚠ 单文件含多卷时（如「综合检测卷8套」），各卷题号**都从 1 重新开始**。
+      若直接按题号收集，后卷会整体覆盖前卷，相似度暴跌至 0.05~0.25（假阳性）。
+      故必须先按卷分隔，再在卷内切题。
+
+    识别规则：行首 `# 标题`（1 个 #）。若全文没有一级标题 → 返回单卷（标题为 ''）。
+    """
+    lines = text.split('\n')
+    heads = []
+    for i, ln in enumerate(lines):
+        if re.match(r'^#\s+\S', ln):
+            heads.append((i, ln.lstrip('#').strip()))
+    if not heads:
+        return [{'标题': '', '正文': text}]
+    vols = []
+    for idx, (pos, title) in enumerate(heads):
+        end = heads[idx + 1][0] if idx + 1 < len(heads) else len(lines)
+        vols.append({'标题': title, '正文': '\n'.join(lines[pos + 1:end])})
+    return vols
+
+
+def match_juan(vol_title, juan):
+    """判断源卷标题是否对应目标卷名。返回 (命中布尔, 说明)。
+
+    按「卷名尾部的卷次数字」与「源标题中的中文/阿拉伯数字」比对。
+    匹配不上时返回 False，由调用方决定是报错还是放宽。
+    """
+    CN = '〇一二三四五六七八九十'
+    # 目标卷名尾部数字：卷1 / 卷12 / 检测卷3 …（取最后一个连续数字串）
+    mj = re.findall(r'\d+', juan)
+    if not mj:
+        return False, '卷名中未找到卷次数字'
+    tgt = int(mj[-1])
+    # 源标题中的数字：阿拉伯或中文
+    ma = re.search(r'(\d{1,2})', vol_title)
+    if ma:
+        got = int(ma.group(1))
+    else:
+        mc = re.search(r'([一二三四五六七八九十]{1,3})', vol_title)
+        if not mc:
+            return False, '源卷标题中未找到卷次数字'
+        s = mc.group(1)
+        got = CN.index(s[0]) if len(s) == 1 else (
+            10 + CN.index(s[1]) if s[0] == '十' else 0)
+        if len(s) == 1 and got == 0:
+            got = 10
+    return (got == tgt), '源卷次 %d vs 目标 %d' % (got, tgt)
+
+
+def split_source(text, want_juan=None):
     """把源 md 按题号切成 {题号: 文本}；题号行形如 `1. xxx`，块止于下一个「结束性」栏目标题。
 
     ⚠ `## 材料` / `## 材料一` 等是**题目内部标题**（解析册常见），不得当作块结束，
       否则长材料题（17~20）会被截断成一句话，相似度暴跌（河北卷实测题20 仅 0.06）。
+
+    ⚠ 多卷源文件（陷阱 10）：必须传 want_juan（目标卷名），本函数会先按一级标题定位对应卷，
+      再在该卷内切题；定位失败则**报错退出**，绝不静默回退（静默回退正是旧版的假阳性根源）。
     """
     END_TITLES = ('参考答案', '考查目标', '试题分析', '试题亮点', '试卷原题',
                   '答案', '解析', '命题立意', '解题思路')
+    vols = split_volumes(text)
+    if want_juan is not None and len(vols) > 1:
+        hit = [v for v in vols if match_juan(v['标题'], want_juan)[0]]
+        if not hit:
+            print('!! 源文件含 %d 卷，但无一卷匹配 --卷 "%s"' % (len(vols), want_juan),
+                  file=sys.stderr)
+            print('   各卷标题：%s' % ' | '.join(v['标题'] for v in vols), file=sys.stderr)
+            print('   请核对卷次，或改用拆分后的单卷源文件。', file=sys.stderr)
+            sys.exit(2)
+        if len(hit) > 1:
+            print('!! 源文件中有 %d 卷匹配 --卷 "%s"，请勿混淆' % (len(hit), want_juan),
+                  file=sys.stderr)
+            sys.exit(2)
+        text = hit[0]['正文']
+        print('>> 多卷源文件：已定位卷「%s」（共 %d 卷）' % (hit[0]['标题'], len(vols)))
+    elif want_juan is not None and len(vols) == 1 and vols[0]['标题']:
+        ok, why = match_juan(vols[0]['标题'], want_juan)
+        if not ok:
+            print('!! 单卷源文件标题「%s」与 --卷 "%s" 卷次不符（%s）'
+                  % (vols[0]['标题'], want_juan, why), file=sys.stderr)
+            sys.exit(2)
+
     src = {}
     cur, buf = None, []
     for ln in text.split('\n'):
@@ -117,21 +198,32 @@ def find_answer_files(vault, juan):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--源', dest='source', required=True, help='源文本 md（MinerU 导出或文字版）')
-    ap.add_argument('--卷', dest='juan', required=True, help='卷名（与题库目录一致）')
+    ap.add_argument('--卷', dest='juan', default=None, help='卷名（与题库目录一致）；--列出卷 时可省')
     ap.add_argument('--vault', dest='vault', default=None)
     ap.add_argument('--阈值', dest='thr', type=float, default=0.985)
     ap.add_argument('--差异数', dest='ndiff', type=int, default=8)
     ap.add_argument('--全部', dest='all_diff', action='store_true')
     ap.add_argument('--忽略', dest='ignore', default='',
                     help='已声明差异的题号（逗号分隔），如 03,04,05 —— 仍打印差异但不计入不达标')
+    ap.add_argument('--列出卷', dest='list_vols', action='store_true',
+                    help='只列出源文件中的卷级标题后退出（多卷源文件勘察用）')
     args = ap.parse_args()
     ignore = set()
     for part in re.split(r'[,，\s]+', args.ignore.strip()):
         if part.isdigit():
             ignore.add(int(part))
 
+    if args.list_vols:
+        vols = split_volumes(open(args.source, encoding='utf-8').read())
+        print('源文件共 %d 卷：' % len(vols))
+        for i, v in enumerate(vols, 1):
+            print('  %2d. %s' % (i, v['标题'] or '(无标题)'))
+        sys.exit(0)
+    if not args.juan:
+        ap.error('--卷 为必填（仅 --列出卷 模式可省）')
+
     vault = load_vault(args.vault)
-    src = split_source(open(args.source, encoding='utf-8').read())
+    src = split_source(open(args.source, encoding='utf-8').read(), want_juan=args.juan)
     files = find_answer_files(vault, args.juan)
     if not files:
         print('!! 未找到卷 %s 的题库文件（vault=%s）' % (args.juan, vault), file=sys.stderr)
