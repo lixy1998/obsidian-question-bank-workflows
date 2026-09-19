@@ -24,6 +24,7 @@
 Obsidian历史题库搭建与组卷/
 ├── SKILL.md                    # 技能主文档（存/校/取/研五流程操作手册）
 ├── README.md
+├── LOCAL-PATCH.md              # 本地改造记录（verify_against_source 多卷支持等）
 ├── LICENSE                     # CC BY-NC-SA 4.0
 ├── templates/
 │   └── 历史试题模板.md           # 单题模板（初始化时复制到 vault）
@@ -41,6 +42,7 @@ Obsidian历史题库搭建与组卷/
 │   ├── 试卷排版规范.md           # 成卷版式（国标合规层 + 原卷惯例层 + 图文混排）
 │   ├── 标准-试卷排版依据.md       # 标准依据（强制/推荐/惯例三档 + 河南中考实测）
 │   ├── 试卷版式核验矩阵.md        # 条款 ↔ 依据 ↔ 实现 ↔ 核验方式
+│   ├── 参考-图片与图注修复.md      # 录入链路图片问题修复（图注丢失/空 alt/孤儿图）
 │   └── 分析基线-洛阳.md          # 实测对照基线（课次热度/卷面结构/分值口径）
 └── scripts/
     ├── qb_schema.py            # 公共模块：词表（课名+单元层级）+ 路径规则 + 校验 + 权威序
@@ -49,6 +51,7 @@ Obsidian历史题库搭建与组卷/
     ├── scan_questions.py       # 全库校验（必填/枚举/课名/正文非空/id 多值/定位字段提示）
     ├── dedupe_questions.py     # 查重 + 一题多卷合并（scan/check/merge/rollback）
     ├── verify_paper_layout.py  # 试卷版式校验器（docx 字号行距 / 卷结构层）
+    ├── verify_against_source.py # 录入后回归自检（入库正文 ↔ MinerU 源文本逐题比对，支持单文件多卷）
     ├── export_student_paper.py # 组卷导出（学生/教师双版）
     ├── gen_index.py            # 由 BOOK_INDEX 生成六册试题索引
     ├── read_docx.py            # docx 结构化提取（免 MinerU）
@@ -66,21 +69,16 @@ Obsidian历史题库搭建与组卷/
 ### 1. 初始化
 
 ```bash
-# ① 设置题库库根目录环境变量（Obsidian vault）
-setx TNOTE_VAULT "D:/Documents/TNote"        # Windows（新开终端生效）
-# export TNOTE_VAULT=/path/to/TNote           # macOS / Linux
+# ① 一键初始化（写入 vault 配置 + 建六类别目录 + 复制单题模板）
+python scripts/setup.py --vault "<你的vault路径>" --init    # 推荐：写入配置并建库
+python scripts/setup.py                                    # 或交互式引导
 
 # ② 安装 Python 依赖
 pip install pyyaml                             # 核心流程必需
 pip install python-docx pymupdf python-pptx    # 可选：docx 直读 / PDF 补图 / PPT 提取（受管 venv 通常已装，先 `import` 验一下）
-
-# ③ 复制单题模板到 vault 模板目录
-cp templates/历史试题模板.md "$TNOTE_VAULT/0-Template-模板/"
-
-# ④ 建库：在 vault 根下创建类别目录
-#    初中-1中考真题 / 初中-2中考模拟题 / 初中-3阶段测试
-#    高中-1高考真题 / 高中-2高考模拟题 / 高中-3阶段测试
 ```
+
+> 兼容通道（可选）：环境变量 `TNOTE_VAULT` 指定库根目录，优先级最高——Windows `setx TNOTE_VAULT "<你的vault路径>"`（新开终端生效）；macOS/Linux `export TNOTE_VAULT=/path/to/vault`。手动建库时在 vault 根下创建六类别目录：`初中-1中考真题 / 初中-2中考模拟题 / 初中-3阶段测试`、`高中-1高考真题 / 高中-2高考模拟题 / 高中-3阶段测试`，并复制 `templates/历史试题模板.md` 到 `{vault}/0-Template-模板/`。
 
 > **可选**：扫描版 PDF/图片录入需要 MinerU 服务（`mineru-open-api` CLI + token）。无 token 时文字版文件（docx/PPT/md）可直接走免 OCR 链路，不影响核心使用。
 

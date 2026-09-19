@@ -8,7 +8,7 @@
 
 1. **AI 引导**（推荐）：用户说「录入到题库」等时，若脚本报「未配置题库库」→ 主动询问 vault 位置 → 用户提供后执行 `python scripts/setup.py --vault "<路径>" --init`（或仅 `--vault`，不建库）→ 提示完成
 2. **命令行引导**：`python scripts/setup.py`（交互式，可新建）或 `python scripts/setup.py --vault <路径> --init`（一键写入+建库）
-3. **兼容通道（可选）**：环境变量 `TNOTE_VAULT` 优先级最高（Windows `setx TNOTE_VAULT "D:/Documents/TNote"`；macOS/Linux 写入 shell 配置）
+3. **兼容通道（可选）**：环境变量 `TNOTE_VAULT` 优先级最高（Windows `setx TNOTE_VAULT "<你的vault路径>"`；macOS/Linux 写入 shell 配置）
 4. **Python 依赖**：
    - 核心流程（写 JSON → gen → scan → export → 分析统计）只需 `pyyaml`：`pip install pyyaml`
    - 链路B 扩展（可选）：`pip install python-docx pymupdf python-pptx`（docx 直读 / PDF 裁剪补图 / PPT 提取）

@@ -22,6 +22,7 @@ python fix_image_formats.py --fix            # 出修复计划（dry-run）
 python fix_image_formats.py --fix --apply    # 执行：转换 → 同步改引用 → 复检 → 原图入回收站
 ```
 
+- 其他参数：`--keep-original` 转换后保留原图（默认入回收站）；`--backup <目录>` 自定义备份目录（默认 `<库同级>/_imgfix_backup_<时间戳>`）；`--vault <路径>` 临时指定其他题库库巡检（默认读 skill_config.json）
 - **Obsidian 不渲染 TIFF/EMF/WMF**，库里存了就是破图（2026-09-15 实测清出 12 个 tiff，全是破图）；**批量录入后建议顺手跑一次巡检**
 - 新图入库前已由 `read_docx.py` / `pull_pdf_images.py` 的**格式守卫**挡住（非白名单自动转 PNG），本命令管的是**存量**
 - 判据：真透明或颜色数 ≤16 → PNG；其余（连续调扫描件/照片）→ JPG（实测小 4~6 倍）
