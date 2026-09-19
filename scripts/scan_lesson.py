@@ -5,10 +5,13 @@
   python scan_lesson.py --lesson "第5课 古代希腊" [--口径 主考|兼涉|全涉] [--body] [--json]
   python scan_lesson.py --lesson "第2课 古代两河流域,第3课 古代埃及,纲要下第1课 …"  # 逗号分隔多课＝专题聚合
   python scan_lesson.py --单元 "古代欧洲文明" [...]                              # 单元维度（按「单元」字段匹配）
+  python scan_lesson.py --单元 "史前时期" --卷 "洛阳市2024-2025学年7上期末,洛阳市2025-2026学年7上期末"  # 限定卷范围（v2.1）
 
 参数：
   --lesson  课名，子串匹配；逗号分隔＝多课聚合（专题维度）
   --单元    单元名，子串匹配「单元」字段；逗号分隔多单元
+  --卷      卷名筛选（v2.1）：子串匹配卷目录名（{vault}/{类别}/{卷名}/ 第 2 层），
+            逗号分隔多卷，命中任一即保留；范围收窄器，不改变口径逻辑
   两者至少给一个，可同给（并集口径）
 
 口径（v1.5.0「定位三字段多值优先」，v2.0 扩展到单元/多课组）：
@@ -49,6 +52,8 @@ def main():
                     help="课名（子串匹配，逗号分隔多课＝专题聚合，如「第2课 古代两河流域,第3课 古代埃及」）")
     ap.add_argument("--单元", dest="units", default="",
                     help="单元名（子串匹配「单元」字段，逗号分隔多单元）")
+    ap.add_argument("--卷", dest="volumes", default="",
+                    help="卷名筛选（子串匹配卷目录名，逗号分隔多卷，如「洛阳市2024-2025学年7上期末,洛阳市2025-2026学年7上期末」）")
     ap.add_argument("--口径", dest="scope", default="全涉", choices=["主考", "兼涉", "全涉"])
     ap.add_argument("--body", action="store_true", help="输出题干全文")
     ap.add_argument("--json", action="store_true", help="输出 JSON（机器可读）")
@@ -56,6 +61,7 @@ def main():
 
     targets_lesson = [s.strip() for s in a.lesson.split(",") if s.strip()]
     targets_unit = [s.strip() for s in a.units.split(",") if s.strip()]
+    targets_vol = [s.strip() for s in a.volumes.split(",") if s.strip()]
     if not targets_lesson and not targets_unit:
         ap.error("至少给一个 --lesson 或 --单元")
     multi = (len(targets_lesson) + len(targets_unit)) > 1
@@ -71,6 +77,11 @@ def main():
         for p in sorted(root.rglob("*.md")):
             if p.name.startswith("_"):
                 continue
+            if targets_vol:  # 卷范围收窄（v2.1）：卷名 = 路径第 2 层目录名
+                parts = p.relative_to(Path(VAULT)).parts
+                volname = parts[1] if len(parts) > 1 else ""
+                if not any(v in volname for v in targets_vol):
+                    continue
             fm, body, err = split_frontmatter(p.read_text(encoding="utf-8"))
             if err or not isinstance(fm, dict):
                 continue
@@ -115,14 +126,15 @@ def main():
         ([f"课×{len(targets_lesson)}"] if targets_lesson else []) +
         ([f"单元×{len(targets_unit)}"] if targets_unit else [])) + "）" if multi else ""
     if a.json:
-        print(json.dumps({"lesson": a.lesson, "units": a.units, "mode": mode,
+        print(json.dumps({"lesson": a.lesson, "units": a.units, "volumes": a.volumes, "mode": mode,
                           "targets": all_targets, "scope": a.scope, "total": len(rows),
                           "主考": len(pairs), "兼涉": len(cross), "rows": rows},
                          ensure_ascii=False, indent=2))
         return
 
     target_desc = "＋".join(all_targets) if not multi else f"{mode}{mode_note}"
-    print(f"### {target_desc}｜模式 {mode}｜口径 {a.scope}｜命中 {len(rows)} 题"
+    vol_note = f"｜卷×{len(targets_vol)}" if targets_vol else ""
+    print(f"### {target_desc}｜模式 {mode}｜口径 {a.scope}{vol_note}｜命中 {len(rows)} 题"
           f"（其中主考 {len(pairs)}、兼涉 {len(cross)}）\n")
 
     if a.scope == "全涉" and rows:

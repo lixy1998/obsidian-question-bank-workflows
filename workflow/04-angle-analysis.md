@@ -40,6 +40,7 @@ python scripts/scan_lesson.py --lesson "第5课 古代希腊" --口径 兼涉   
 python scripts/scan_lesson.py --lesson "第5课 古代希腊" --body            # 附题干全文
 python scripts/scan_lesson.py --单元 "古代欧洲文明"                        # 单元维度
 python scripts/scan_lesson.py --lesson "第2课 古代两河流域,第3课 古代埃及,第4课 古代印度,第5课 古代希腊,第6课 古代罗马"   # 专题维度（多课聚合）
+python scripts/scan_lesson.py --单元 "史前时期" --卷 "洛阳市2024-2025学年7上期末,洛阳市2025-2026学年7上期末"   # 限定卷范围（v2.1，逗号多值子串匹配卷目录名；范围收窄器，不改变口径逻辑）
 ```
 
 **报告口径**：主体用 **主考**（这是对象真正被考的部分）；**兼涉单列一节**——说明对象被当参照系/背景板的频次与方式。
