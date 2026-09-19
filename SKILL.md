@@ -26,7 +26,7 @@ author: 教历史的史知行
 | 试卷排版 / 成卷版式 / 图文混排 | `references/试卷排版规范.md`（版式条款）+ `references/标准-试卷排版依据.md`（国标与实测依据）+ `references/试卷版式核验矩阵.md` |
 | 校验/词表维护（题库质量检查、scan、BOOK_INDEX 维护） | `workflow/03-check.md` |
 | **图片不显示 / 图片打不开 / tiff 转 jpg / 图片格式巡检** | 本文件「全局陷阱 4」+ `scripts/fix_image_formats.py` |
-| **图注丢失 / 空 alt / 缺图配对 / 孤儿图**（录入链路图片问题修复） | `references/参考-图片与图注修复.md` |
+| **图注丢失 / 空 alt / 缺图配对 / 孤儿图 / 题库图片排版巡检 / 图文粘连空行修复**（录入链路图片问题修复） | `references/参考-图片与图注修复.md` |
 | **单课考查方向分析**（某课考什么、归纳X课考点、命题规律） | `workflow/04-lesson-analysis.md` |
 | **册别/学段考试范围分析**（某册期末考什么、复习优先级、学困生提分） | `workflow/05-range-analysis.md` |
 | 分析对照基线（洛阳各册实测结论、分值口径） | `references/分析基线-洛阳.md` |
