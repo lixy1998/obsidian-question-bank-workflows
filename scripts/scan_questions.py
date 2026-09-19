@@ -5,6 +5,8 @@
 - 校验：必填字段、id 唯一性（多值逐项）、受控枚举（册别/题型/难度）、正文非空
 - v1.3.0 新增：一题多卷交叉校验（别名 id 不应再作为独立题存在）
 - v1.5.0 新增：定位字段提示（课的所属单元/册别是否写进本题 单元/册别 字段，提示级）
+- v1.8.2 新增：关键能力**要素名白名单**校验（编号格式合法但要素名非郑林 9 要素 → 问题级；
+  徐奉先 3×3 等旧格式仍为提示级）——修补「A2-理解/C3-感悟」类标注逃过校验的盲区
 - 输出：总量统计 + 按册别/题型/难度分布 + 问题清单
 
 用法：
@@ -44,6 +46,10 @@ def _empty(v) -> bool:
 
 # 郑林 9 要素编号格式（A1-C3）：关键能力主词表；徐奉先 3×3 为旧标注（存量迁移未完成，仅提示）
 ZHENG_RE = re.compile(r"^[ABC][1-3]-")
+# 主词表白名单（唯一权威源：references/素养能力词表.md 第三章「郑林三层次九要素」）
+# 校验策略分流：编号格式不符（徐奉先旧标注等）→ 提示级；编号合法但要素名不在白名单 → 问题级
+ZHENG_SET = {"A1-识记", "A2-说明", "A3-概括", "B1-比较", "B2-分析", "B3-评价",
+             "C1-建构", "C2-考证", "C3-探究"}
 
 
 def dump(roots, only_vol: str = None):
@@ -146,10 +152,16 @@ def scan(roots, only_vol: str = None):
                     miss_b.add(pick[0])
             if miss_u or miss_b:
                 locator_hits.append((str(rel), miss_u, miss_b))
-            # 关键能力格式提示（郑林 A1-C3 主词表；徐奉先旧格式/无标注提示，存量迁移未完成）
-            ks = as_list(fm.get("关键能力"))
+            # 关键能力校验（v1.8.2）：
+            #   ① 编号格式不符（徐奉先旧格式/无标注）→ 提示级，题级计数
+            #   ② 编号合法但要素名不在郑林 9 要素白名单（如 A2-理解、C3-感悟）→ 问题级
+            ks = [str(x) for x in as_list(fm.get("关键能力"))]
             if ks and any(not ZHENG_RE.match(x) for x in ks):
                 old_ks_count += 1
+            for x in ks:
+                if ZHENG_RE.match(x) and x not in ZHENG_SET:
+                    problems.append(
+                        f"[关键能力非主词表 {x}] {rel}（郑林 9 要素见 references/素养能力词表.md 第三章）")
             # 正文非空
             if not body.strip():
                 problems.append(f"[正文为空] {rel}")
