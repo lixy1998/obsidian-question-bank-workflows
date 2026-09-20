@@ -72,31 +72,54 @@ def split_volumes(text):
     return vols
 
 
+_CN_DIGIT = {'〇': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+             '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
+
+
+def cn2int(s):
+    """中文数字 → int；无法解析返回 None。
+
+    显式字表映射，**不依赖字符码或 `int()` 转换**（LOCAL-PATCH 记载的硬约束）。
+    支持：一~九／十／十一~十九／二十~九十九／纯数字串（如「二三」→23）。
+    """
+    if not s:
+        return None
+    if s == '十':
+        return 10
+    if all(ch in _CN_DIGIT for ch in s):
+        return int(''.join(str(_CN_DIGIT[c]) for c in s))
+    if '十' in s:
+        hi_s, _, lo_s = s.partition('十')
+        if hi_s and hi_s not in _CN_DIGIT:
+            return None
+        if lo_s and lo_s not in _CN_DIGIT:
+            return None
+        return (_CN_DIGIT[hi_s] if hi_s else 1) * 10 + (_CN_DIGIT[lo_s] if lo_s else 0)
+    return None
+
+
 def match_juan(vol_title, juan):
     """判断源卷标题是否对应目标卷名。返回 (命中布尔, 说明)。
 
     按「卷名尾部的卷次数字」与「源标题中的中文/阿拉伯数字」比对。
     匹配不上时返回 False，由调用方决定是报错还是放宽。
     """
-    CN = '〇一二三四五六七八九十'
     # 目标卷名尾部数字：卷1 / 卷12 / 检测卷3 …（取最后一个连续数字串）
     mj = re.findall(r'\d+', juan)
     if not mj:
         return False, '卷名中未找到卷次数字'
     tgt = int(mj[-1])
-    # 源标题中的数字：阿拉伯或中文
+    # 源标题中的数字：阿拉伯或中文（中文走显式字表 cn2int）
     ma = re.search(r'(\d{1,2})', vol_title)
     if ma:
         got = int(ma.group(1))
     else:
-        mc = re.search(r'([一二三四五六七八九十]{1,3})', vol_title)
+        mc = re.search(r'([〇一二三四五六七八九十]{1,3})', vol_title)
         if not mc:
             return False, '源卷标题中未找到卷次数字'
-        s = mc.group(1)
-        got = CN.index(s[0]) if len(s) == 1 else (
-            10 + CN.index(s[1]) if s[0] == '十' else 0)
-        if len(s) == 1 and got == 0:
-            got = 10
+        got = cn2int(mc.group(1))
+        if got is None:
+            return False, '源卷次「%s」无法解析为数字' % mc.group(1)
     return (got == tgt), '源卷次 %d vs 目标 %d' % (got, tgt)
 
 

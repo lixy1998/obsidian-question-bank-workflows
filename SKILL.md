@@ -2,7 +2,7 @@
 name: Obsidian历史题库搭建与组卷
 description: Obsidian 历史题库建设——「每道题一个文件」：正文只放题干/选项/材料，答案与解析藏 YAML frontmatter。
 触发词：历史题库、题库搭建、题库维护、录入题库、录入题目/试题、录入到题库、出题、组卷、组卷排版、出一套卷子、BOOK_INDEX、课名词表、题库质量检查、查重、题目重复、一题多卷、去重、试卷排版、成卷版式、图文混排、分析某课考查方向、某课考什么、归纳X课考点、结合题库看重点、分析某单元考查方向、某单元考什么、单元命题规律、专题分析、跨单元专题、区域文明、中央集权演变、按考察角度出练习、角度分类练习、考察角度、某册期末考什么、考试范围分析、哪些课是重点、复习优先级、学困生/差生怎么提分、时间不够先放弃哪些、图片不显示、图片打不开、tiff 转 jpg、图片格式巡检。
-version: 1.9.1
+version: 1.9.2
 license: CC BY-NC-SA 4.0
 author: 教历史的史知行
 ---
@@ -47,7 +47,7 @@ author: 教历史的史知行
 | 资产 | 路径 |
 |---|---|
 | 题库库（Obsidian vault） | `{vault}/{学段}-{序号类别}/{卷名}/{卷名}_{题型}/{序号}.md`（如 `{vault}/初中-1中考真题/2026河南中考/…`；类别枚举见下） |
-| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / **verify_against_source.py（录入后回归自检：入库正文 ↔ MinerU 源文本 归一化逐题比对，--源/--卷/--忽略/--列出卷，退出码 1 可阻断；⚠ 本地改造：支持单文件含多卷，见根目录 LOCAL-PATCH.md）** / fix_arabic_numerals.py（中文数字→阿拉伯数字批量转换，覆盖题库 YAML / 词表两处）/ **setup.py（首次配置引导：写入 vault + 建库）** / **scan_lesson.py（按课/单元/专题取题统计，`--lesson` 逗号分隔多课＝专题聚合、`--单元` 按单元字段匹配、`--卷` 卷范围筛选（逗号多值子串匹配卷目录名，如三卷洛阳期末一条命令筛齐）；多课/单元模式自动输出主考落点/兼涉调用/册别分布三段，v2.1）** / **scan_missed.py（关键词反查：正文含词但未标该课）** / **scan_volume.py（册别/卷别聚合：范围判定 + 课次热度三梯队 + 能力素养分布）** / **fix_image_formats.py（图片格式巡检修复：把 Obsidian 不显示的格式转成 jpg/png、同步改 md 引用、原图入回收站；默认只读巡检，`--fix` 出计划、`--fix --apply` 执行）** |
+| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建；`--dry-run` 只预览，检出词表外标题〔疑手工新增课/组〕时**默认中止**该册、需 `--force` 才覆盖）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / **verify_against_source.py（录入后回归自检：入库正文 ↔ MinerU 源文本 归一化逐题比对，--源/--卷/--忽略/--列出卷，退出码 1 可阻断；⚠ 本地改造：支持单文件含多卷，见根目录 LOCAL-PATCH.md）** / fix_arabic_numerals.py（中文数字→阿拉伯数字：册别全文替换＋单元仅改题库 YAML `单元:` 字段与词表 `- 第X单元` 行、正文不动；**默认 dry-run 预览，`--apply` 才落盘**）/ **setup.py（首次配置引导：写入 vault + 建库）** / **scan_lesson.py（按课/单元/专题取题统计，`--lesson` 逗号分隔多课＝专题聚合、`--单元` 按单元字段匹配、`--卷` 卷范围筛选（逗号多值子串匹配卷目录名，如三卷洛阳期末一条命令筛齐）；多课/单元模式自动输出主考落点/兼涉调用/册别分布三段，v2.1）** / **scan_missed.py（关键词反查：正文含词但未标该课）** / **scan_volume.py（册别/卷别聚合：范围判定 + 课次热度三梯队 + 能力素养分布）** / **fix_image_formats.py（图片格式巡检修复：把 Obsidian 不显示的格式转成 jpg/png、同步改 md 引用、原图入回收站；默认只读巡检，`--fix` 出计划、`--fix --apply` 执行）** |
 | 课名词表（本 skill 内） | `<skill>/scripts/BOOK_INDEX.md`（唯一权威，随 skill 分发） |
 | 单题模板（本 skill 内） | `<skill>/templates/历史试题模板.md`（初始化时复制到 vault 模板目录） |
 | 本机配置（本 skill 内） | `<skill>/scripts/skill_config.json`（`{"vault": "..."}`；**已入 .gitignore，不随仓库发布**） |
@@ -91,6 +91,8 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
    - **自己写规则/说明文字时不得出现裸半符**：引用符号就写「左半标记」，或在成对的 `⟦…⟧` 内说明；**更不要写裸正则**——正则里必然含一个多余的右半标记，等于自己造坑（2026-09-18 实测：新写的规范句因含裸正则反被剔除逻辑误删）。
    - **自检判据**：校验脚本若报「标签大批不在词表」，先核 `re.sub` 前后的字数差是否≈注记总量；差出数千字即为误吞。
 
+6. **巡检脚本前必须先确认它带 `argparse`**（2026-09-20 立，实测事故）：批量为脚本跑 `--help` 做可用性巡检时，**没有 `argparse` 的脚本会把 `--help` 当普通参数直接执行 `main()`**——实测 `gen_index.py` 当场重建了题库六册索引、`fix_arabic_numerals.py` 把「技能自身目录」当成题库改写了 4 个文档（12 处）。两条硬规矩：① 巡检前先 `grep -l argparse scripts/*.py`，未命中的脚本**只读源码、不执行**；② 凡写库脚本一律「vault 取 `qb_schema.get_vault()`（环境变量 > 配置文件 > 报错），**禁止 cwd 兜底**；默认 dry-run 预览，`--apply` 才落盘」。
+
 > 各流程专属陷阱见对应流程文件（录入：YAML 特殊字符/材料题图片/第三方整理冲突/**JSON 三件套缺一不可**/**题干忠于原卷**/**选择题图片位置**/**解析册栏目图标过滤**/**选项行 OCR 重灾区**/**疑字渲染复核**/**录入后归一化回归自检**；组卷：导出文件勿入库；校验：索引列由 gen_index.py 决定/录入组卷勿跑 gen_index.py/**定位字段提示须逐条补齐**；分析：**课次漂移按课名比对**/**主考与兼涉不可混算**/**分值口径 50 与 100 分制不可混**/**不要手写解析脚本**）。
 
 ## References
@@ -101,7 +103,7 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
 - `workflow/03-check.md` — 流程三 校验与词表维护（scan、词表校准、索引维护），含校验铁律与陷阱
 - `workflow/04-angle-analysis.md` — 流程四 多维度考查方向分析（三口径取题、漏标反查、**9 节发布稿结构**（v1.9.0 起含「对标中考」固定节：同层外地卷＋上位中考两层）、**§6b 发布化规范**（纯发布式出处、术语转译、表格窄化、配图、合规）、报告落点 `3-试题研究/`），含分析铁律与陷阱
 - `workflow/05-range-analysis.md` — 流程五 册别/学段考试范围分析（范围判定、课次热度三梯队、材料题主线、学困生提分方案六节输出），含范围分析陷阱
-- `references/分析基线-洛阳.md` — 实测对照基线（洛阳九上期末课次热度/卷面结构/分值口径、单课侧基线），分析时先比对基线
+- `references/分析基线-洛阳.md` — 实测对照基线（洛阳9上期末课次热度/卷面结构/分值口径、单课侧基线），分析时先比对基线
 - `references/fields.md` — 字段详解 + JSON 模板（选择题/材料题/小论文）+ 目录规则 + 卷名命名约定
 - `references/book_index.md` — BOOK_INDEX 结构与维护、9上9下核实状态
 - `references/素养能力词表.md` — 核心素养/素养层次水平/关键能力受控词表（唯一权威源；含 `⟦…⟧` 注记标记与注记剔除规则、初高中分轨（初中层次1-3、高中水平1-4）+标注规则、郑林 9 要素主词表+徐奉先对照映射、字段检索示例）

@@ -10,7 +10,9 @@
 不重复硬编码；「学史方法」栏目由独立索引文档承载（1-MoC-索引/学史方法-试题索引.md），
 不在册索引内生成 (一)(二)(三) 空查询块。
 """
+import argparse
 import re
+import sys
 from pathlib import Path
 
 import qb_schema
@@ -120,19 +122,41 @@ def build_index(册, 版本):
 
 
 def main():
-    OUT.mkdir(parents=True, exist_ok=True)
+    ap = argparse.ArgumentParser(
+        description="从 BOOK_INDEX.md 重建 TNote 1-MoC-索引 六册试题索引（幂等：内容不变则不产生差异）")
+    ap.add_argument("--dry-run", action="store_true", help="只预览，不写盘")
+    ap.add_argument("--force", action="store_true",
+                    help="检测到词表外的标题（疑手工新增）时仍强制覆盖；默认中止该册并提示")
+    args = ap.parse_args()
+
     books = load_books()
+    OUT.mkdir(parents=True, exist_ok=True)
     for 册, 版本 in TARGET.items():
         if 册 not in books or 版本 not in books[册]:
             print(f"[跳过] {册} 无 {版本} 词表节")
             continue
-        text = build_index(册, 版本)
+        # 手工内容保护：现有文件里不在词表内的 ## / ### 标题，可能是手工补的组或课
+        groups = parse_groups(books[册][版本])
+        known = {g for g, _ in groups} | {i for _, items in groups for i in items}
         fp = OUT / f"{册}-试题索引.md"
-        fp.write_text(text, encoding="utf-8")
+        old = fp.read_text(encoding="utf-8") if fp.exists() else None
+        manual = ([t for t in re.findall(r"^#{2,3} (.+)$", old, re.M) if t not in known]
+                  if old else [])
+        if manual and not args.force:
+            print(f"[中止] {fp.name} 检出 {len(manual)} 个词表外标题（疑手工新增）：{'、'.join(manual[:5])}")
+            print("       确认可覆盖后加 --force 重跑；或先把这些课/组并入 BOOK_INDEX 词表。")
+            continue
+        text = build_index(册, 版本)
         n_groups = text.count("\n## ")
         n_blocks = text.count("```dataview")
+        if args.dry_run:
+            print(f"[预览] {fp.name} ｜ 分组 {n_groups} ｜ Dataview 块 {n_blocks} ｜ "
+                  f"{'与现状一致' if old == text else '将有变动'}")
+            continue
+        fp.write_text(text, encoding="utf-8")
         print(f"[生成] {fp.name} ｜ 分组 {n_groups} ｜ Dataview 块 {n_blocks}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
