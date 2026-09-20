@@ -13,7 +13,7 @@
    - 核心流程（写 JSON → gen → scan → export → 分析统计）只需 `pyyaml`：`pip install pyyaml`
    - 链路B 扩展（可选）：`pip install python-docx pymupdf python-pptx`（docx 直读 / PDF 裁剪补图 / PPT 提取）
    - ⚡ **受管 venv 已装齐**（`~/.workbuddy/binaries/python/envs/default/`，含 pyyaml / python-docx / pymupdf，2026-09-14 实测）→ 全部脚本可直接用该 venv 解释器执行；若报 `ModuleNotFoundError` 再按上两行安装
-5. **建库**：`--init` 自动建六类别目录 + 复制模板到 `{vault}/0-Template-模板/`；已建库的跳过
+5. **建库**：`--init` 自动建六类别目录 + 复制 `templates/` 下全部模板到 `{vault}/0-Template-模板/`（历史试题模板 + 试题研究笔记 + 试题报告笔记）；已建库的跳过
 6. **可选：MinerU 服务**（仅扫描版 PDF/图片需要，链路A）：安装 `mineru-open-api` CLI 并配置 token（`~/.mineru/config.yaml`）；文字版文件（docx/PPT/md）走链路B 免 MinerU
 
 > 脚本路径用 `<skill>/scripts/` 指代；在 skill 目录内执行时直接 `cd scripts && python …`。
@@ -28,6 +28,6 @@
 
 - `skill_config.json` 含有效 vault（或 `TNOTE_VAULT` 已设）
 - `--init` 已建六类别目录（初中：`1中考真题 / 2中考模拟题 / 3阶段测试`；高中：`1高考真题 / 2高考模拟题 / 3阶段测试`）
-- 模板已复制到 `{vault}/0-Template-模板/历史试题模板.md`
+- 模板已复制到 `{vault}/0-Template-模板/`：`历史试题模板.md`（单题）、`试题研究笔记.md`（A 档研究）、`试题报告笔记.md`（B 档报告）
 
 完成后回到主 SKILL.md，按触发场景读取对应流程文件。

@@ -119,7 +119,7 @@ python scripts/scan_volume.py --册 9上
 python scripts/scan_volume.py --册 9上 --卷 "洛阳市2025-2026学年9上期末"
 ```
 
-> 两个分析流程的**报告落点统一为 vault `3-试题研究/`**；对照基线（洛阳各册实测结论、分值口径）见 `references/分析基线-洛阳.md`。流程细节：`workflow/04-angle-analysis.md`、`workflow/05-range-analysis.md`。
+> 两个分析流程的**报告落点统一为 vault `3-试题研究/`**；对照基线（洛阳各册实测结论、分值口径）见 `references/分析基线-洛阳.md`。报告笔记的属性字段、命名与模板见 `references/fields.md`「试题研究笔记属性」（模板：`templates/试题报告笔记.md`）。流程细节：`workflow/04-angle-analysis.md`、`workflow/05-range-analysis.md`。
 
 ## 文档
 

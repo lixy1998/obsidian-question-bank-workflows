@@ -27,6 +27,7 @@ author: 教历史的史知行
 | 校验/词表维护（题库质量检查、scan、BOOK_INDEX 维护） | `workflow/03-check.md` |
 | **图片不显示 / 图片打不开 / tiff 转 jpg / 图片格式巡检** | 本文件「全局陷阱 4」+ `scripts/fix_image_formats.py` |
 | **图注丢失 / 空 alt / 缺图配对 / 孤儿图 / 题库图片排版巡检 / 图文粘连空行修复**（录入链路图片问题修复） | `references/参考-图片与图注修复.md` |
+| **写试题研究笔记 / 分析报告落库**（属性字段、命名、模板选用） | `references/fields.md`「试题研究笔记属性」+ `<skill>/templates/` |
 | **考查方向分析**（某课/某单元考什么、命题规律；**专题跨单元分析**如「文明的多元发展」；**按考察角度出练习**） | `workflow/04-angle-analysis.md` |
 | **册别/学段考试范围分析**（某册期末考什么、复习优先级、学困生提分） | `workflow/05-range-analysis.md` |
 | 分析对照基线（洛阳各册实测结论、分值口径） | `references/分析基线-洛阳.md` |
@@ -49,7 +50,7 @@ author: 教历史的史知行
 | 题库库（Obsidian vault） | `{vault}/{学段}-{序号类别}/{卷名}/{卷名}_{题型}/{序号}.md`（如 `{vault}/初中-1中考真题/2026河南中考/…`；类别枚举见下） |
 | 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建；`--dry-run` 只预览，检出词表外标题〔疑手工新增课/组〕时**默认中止**该册、需 `--force` 才覆盖）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / **verify_against_source.py（录入后回归自检：入库正文 ↔ MinerU 源文本 归一化逐题比对，--源/--卷/--忽略/--列出卷，退出码 1 可阻断；⚠ 本地改造：支持单文件含多卷，见根目录 LOCAL-PATCH.md）** / fix_arabic_numerals.py（中文数字→阿拉伯数字：册别全文替换＋单元仅改题库 YAML `单元:` 字段与词表 `- 第X单元` 行、正文不动；**默认 dry-run 预览，`--apply` 才落盘**）/ **setup.py（首次配置引导：写入 vault + 建库）** / **scan_lesson.py（按课/单元/专题取题统计，`--lesson` 逗号分隔多课＝专题聚合、`--单元` 按单元字段匹配、`--卷` 卷范围筛选（逗号多值子串匹配卷目录名，如三卷洛阳期末一条命令筛齐）；多课/单元模式自动输出主考落点/兼涉调用/册别分布三段，v2.1）** / **scan_missed.py（关键词反查：正文含词但未标该课）** / **scan_volume.py（册别/卷别聚合：范围判定 + 课次热度三梯队 + 能力素养分布）** / **fix_image_formats.py（图片格式巡检修复：把 Obsidian 不显示的格式转成 jpg/png、同步改 md 引用、原图入回收站；默认只读巡检，`--fix` 出计划、`--fix --apply` 执行）** |
 | 课名词表（本 skill 内） | `<skill>/scripts/BOOK_INDEX.md`（唯一权威，随 skill 分发） |
-| 单题模板（本 skill 内） | `<skill>/templates/历史试题模板.md`（初始化时复制到 vault 模板目录） |
+| 模板（本 skill 内） | `<skill>/templates/`：`历史试题模板.md`（单题）／`试题研究笔记.md`（A 档·单题/单卷研究）／`试题报告笔记.md`（B 档·课单元专题册别报告）；初始化时**全部**复制到 `{vault}/0-Template-模板/` |
 | 本机配置（本 skill 内） | `<skill>/scripts/skill_config.json`（`{"vault": "..."}`；**已入 .gitignore，不随仓库发布**） |
 | Python | 运行环境矩阵：**默认 venv** 一把跑全部脚本——2026-09-14 实测 venv 已含 pyyaml / python-docx / pymupdf（`import fitz` 通过），故 qb_schema / scan / gen_problem / export / gen_index / fix_arabic_numerals / setup / **read_docx.py** / **pull_pdf_images.py** 均可用 venv 执行；2026-09-15 追加实测 venv 亦含 **numpy / opencv(cv2) / Pillow**，故 **fix_image_formats.py** 同样用 venv（它的读图链路是 cv2 + np.fromfile，Pillow 只用于保存与读 dpi）；若 venv 报 `ModuleNotFoundError`，再改用主环境（python-docx / pymupdf / python-pptx 链路B 提取备选），或按「初始化」装包 |
 

@@ -20,7 +20,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).parent
 SKILL_ROOT = SCRIPTS.parent
 CONFIG_FILE = SCRIPTS / "skill_config.json"
-TEMPLATE_FILE = SKILL_ROOT / "templates" / "历史试题模板.md"
+TEMPLATES_DIR = SKILL_ROOT / "templates"
 CATEGORIES = ["初中-1中考真题", "初中-2中考模拟题", "初中-3阶段测试",
               "高中-1高考真题", "高中-2高考模拟题", "高中-3阶段测试"]
 
@@ -47,15 +47,16 @@ def init_vault(vault: str) -> None:
         (root / c).mkdir(parents=True, exist_ok=True)
     tpl_dir = root / "0-Template-模板"
     tpl_dir.mkdir(parents=True, exist_ok=True)
-    if TEMPLATE_FILE.exists():
-        dst = tpl_dir / TEMPLATE_FILE.name
+    tpls = sorted(TEMPLATES_DIR.glob("*.md")) if TEMPLATES_DIR.exists() else []
+    if not tpls:
+        print(f"[建库] ⚠ 未找到技能内模板目录 {TEMPLATES_DIR}，跳过模板复制")
+    for src in tpls:
+        dst = tpl_dir / src.name
         if not dst.exists():
-            shutil.copy2(TEMPLATE_FILE, dst)
+            shutil.copy2(src, dst)
             print(f"[建库] 模板已复制到 {dst}")
         else:
             print(f"[建库] 模板已存在，跳过：{dst}")
-    else:
-        print(f"[建库] ⚠ 未找到技能内模板 {TEMPLATE_FILE}，跳过模板复制")
     print(f"[建库] 完成：{root}（六类别目录 + 模板目录）")
 
 
