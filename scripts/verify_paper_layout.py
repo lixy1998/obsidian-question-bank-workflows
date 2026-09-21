@@ -131,9 +131,11 @@ def verify_docx(path, min_body=12.0, min_sub=9.0, min_net_mm=3.0, rpt=None):
                     fn = _east_asia_font(run, para, doc)
                     if fn:
                         fonts[fn] += 1
-                    if len(run._element.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing")) \
-                            or len(run._element.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pict")):
-                        pic_paras.append((pi, para.alignment))
+                # ⚠ 图片 run 通常不含文字，故图片检测必须在「有文字」分支之外
+                # （2026-09-21 修正：原先嵌在 if run.text 内，导致纯图片段落一律漏检，C1 居中项恒报 0/0）
+                if len(run._element.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing")) \
+                        or len(run._element.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pict")):
+                    pic_paras.append((pi, para.alignment))
             if para.style is not None and size is None and para.style.font.size is not None:
                 size = para.style.font.size.pt
             if size is not None and txt:
