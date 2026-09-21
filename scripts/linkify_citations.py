@@ -232,11 +232,21 @@ def main():
         if mb:
             report_book = re.findall(r"[789][上下]", mb.group(1))[0] if re.findall(r"[789][上下]", mb.group(1)) else ""
         lines = text.split("\n")
+        # ⚠ frontmatter 必须跳过：属性字段里出现 `[[` 会被 YAML 当成列表语法，
+        # 导致属性面板解析失败（2026-09-21 实测：把「核心结论」的值改成了 [[…]]）。
+        fm_end = 0
+        if lines and lines[0].strip() == "---":
+            for _i in range(1, len(lines)):
+                if lines[_i].strip() == "---":
+                    fm_end = _i + 1
+                    break
         plans = []
         unres = []
         covered = []          # 已匹配区间，用于统计"未处理"
 
         for li, line in enumerate(lines):
+            if li < fm_end:          # frontmatter 区（含起止 --- 两行）不处理
+                continue
             in_tbl = line.lstrip().startswith("|")
             # 幂等保护：已存在的 wikilink（含其别名文本）内的内容不再处理，
             # 否则别名「2022 河南中考 第 22 题」会被再次包一层链接。
