@@ -1,8 +1,8 @@
 ---
 name: Obsidian历史题库搭建与组卷
 description: Obsidian 历史题库建设——「每道题一个文件」：正文只放题干/选项/材料，答案与解析藏 YAML frontmatter；并含 `3-试题研究/` 笔记的属性规范与模板（A 档单题/单卷研究、B 档课·单元·专题·册别报告）。
-触发词：历史题库、题库搭建、题库维护、录入题库、录入题目/试题、录入到题库、出题、组卷、组卷排版、出一套卷子、BOOK_INDEX、课名词表、题库质量检查、查重、题目重复、一题多卷、去重、试卷排版、成卷版式、图文混排、分析某课考查方向、某课考什么、归纳X课考点、结合题库看重点、分析某单元考查方向、某单元考什么、单元命题规律、专题分析、跨单元专题、区域文明、中央集权演变、按考察角度出练习、角度分类练习、考察角度、某册期末考什么、考试范围分析、哪些课是重点、复习优先级、学困生/差生怎么提分、时间不够先放弃哪些、图片不显示、图片打不开、tiff 转 jpg、图片格式巡检、试题研究笔记、笔记属性、试题报告模板、链接断了、断链、链接跳转不了、引用失效。
-version: 1.10.3
+触发词：历史题库、题库搭建、题库维护、录入题库、录入题目/试题、录入到题库、出题、组卷、组卷排版、出一套卷子、BOOK_INDEX、课名词表、题库质量检查、查重、题目重复、一题多卷、去重、试卷排版、成卷版式、图文混排、分析某课考查方向、某课考什么、归纳X课考点、结合题库看重点、分析某单元考查方向、某单元考什么、单元命题规律、专题分析、跨单元专题、区域文明、中央集权演变、按考察角度出练习、角度分类练习、考察角度、某册期末考什么、考试范围分析、哪些课是重点、复习优先级、学困生/差生怎么提分、时间不够先放弃哪些、图片不显示、图片打不开、tiff 转 jpg、图片格式巡检、试题研究笔记、笔记属性、试题报告模板、链接断了、断链、链接跳转不了、引用失效、给报告加链接、正文出处加链接、引用题目。
+version: 1.10.4
 license: CC BY-NC-SA 4.0
 author: 教历史的史知行
 ---
@@ -23,6 +23,7 @@ author: 教历史的史知行
 | 录入题库（录入到题库、录入题目/试题） | `workflow/01-input.md` |
 | 查重 / 发现重复题 / 一题多卷合并 | `workflow/01-input.md`「查重与合并」+ `references/fields.md`「一题多卷与去重」 |
 | **链接断了 / 链接跳转不了 / 引用失效**（合并后研究报告的引用体检与修复） | `references/fields.md`「合并对笔记引用的影响」+ `scripts/check_note_links.py` |
+| **给报告加链接 / 正文出处加链接 / 引用题目**（把正文里的「2024 年河南中考 第 25 题」批量转成可点击 wikilink） | `references/fields.md`「正文出处补链」+ `scripts/linkify_citations.py` |
 | 组卷/出题（出题、组卷、出一套卷子、某范围检索） | `workflow/02-compose.md` |
 | 试卷排版 / 成卷版式 / 图文混排 | `references/试卷排版规范.md`（版式条款）+ `references/标准-试卷排版依据.md`（国标与实测依据）+ `references/试卷版式核验矩阵.md` |
 | 校验/词表维护（题库质量检查、scan、BOOK_INDEX 维护） | `workflow/03-check.md` |
@@ -49,7 +50,7 @@ author: 教历史的史知行
 | 资产 | 路径 |
 |---|---|
 | 题库库（Obsidian vault） | `{vault}/{学段}-{序号类别}/{卷名}/{卷名}_{题型}/{序号}.md`（如 `{vault}/初中-1中考真题/2026河南中考/…`；类别枚举见下） |
-| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建；`--dry-run` 只预览，检出词表外标题〔疑手工新增课/组〕时**默认中止**该册、需 `--force` 才覆盖）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **check_note_links.py（笔记引用体检：扫 `3-试题研究/` 检出题目 wikilink 断链与「指向 _归档/ 的不合规引用」，从失效路径反推旧 id 定位主卷并改指；`--fix` 出计划、`--apply` 执行并写日志 {vault}/.linkfix/、`--rollback` 回滚、`--cite <题目id>` 合并前预检谁引用了该题；默认保留原别名，`--alias theme` 改用主卷 id；表格内 `\|` 转义风格原样保持）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / **verify_against_source.py（录入后回归自检：入库正文 ↔ MinerU 源文本 归一化逐题比对，--源/--卷/--忽略/--列出卷，退出码 1 可阻断；⚠ 本地改造：支持单文件含多卷 + 卷定位两级策略〔卷次严格匹配 → 卷名无卷次时排除答案卷兜底，常规「原卷＋答案同文件」免拆源〕，见根目录 LOCAL-PATCH.md）** / fix_arabic_numerals.py（中文数字→阿拉伯数字：册别全文替换＋单元仅改题库 YAML `单元:` 字段与词表 `- 第X单元` 行、正文不动；**默认 dry-run 预览，`--apply` 才落盘**）/ **setup.py（首次配置引导：写入 vault + 建库）** / **scan_lesson.py（按课/单元/专题取题统计，`--lesson` 逗号分隔多课＝专题聚合、`--单元` 按单元字段匹配、`--卷` 卷范围筛选（逗号多值子串匹配卷目录名，如三卷洛阳期末一条命令筛齐）；多课/单元模式自动输出主考落点/兼涉调用/册别分布三段，v2.1）** / **scan_missed.py（关键词反查：正文含词但未标该课）** / **scan_volume.py（册别/卷别聚合：范围判定 + 课次热度三梯队 + 能力素养分布）** / **fix_image_formats.py（图片格式巡检修复：把 Obsidian 不显示的格式转成 jpg/png、同步改 md 引用、原图入回收站；默认只读巡检，`--fix` 出计划、`--fix --apply` 执行）** |
+| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建；`--dry-run` 只预览，检出词表外标题〔疑手工新增课/组〕时**默认中止**该册、需 `--force` 才覆盖）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **check_note_links.py（笔记引用体检：扫 `3-试题研究/` 检出题目 wikilink 断链与「指向 _归档/ 的不合规引用」，从失效路径反推旧 id 定位主卷并改指；`--fix` 出计划、`--apply` 执行并写日志 {vault}/.linkfix/、`--rollback` 回滚、`--cite <题目id>` 合并前预检谁引用了该题；默认保留原别名，`--alias theme` 改用主卷 id；表格内 `\|` 转义风格原样保持）** / **linkify_citations.py（报告补链：把笔记正文/表格里的「2024 年河南中考 第 25 题」这类**出处表述**批量转成库内 wikilink `[[…|卷名 第 N 题]]`；默认只读扫描 `3-试题研究/`、`--files` 指定笔记、`--apply` 执行；只处理可完整识别的出处，**缺卷别的指代不猜测**、单列交人工；内置幂等保护（不动已有链接）；卷匹配用要素法〔年份/类型/册别/地名/检测卷序号〕＋A-B 卷与区级硬判据，题目查找兼容**补零文件名**）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / **verify_against_source.py（录入后回归自检：入库正文 ↔ MinerU 源文本 归一化逐题比对，--源/--卷/--忽略/--列出卷，退出码 1 可阻断；⚠ 本地改造：支持单文件含多卷 + 卷定位两级策略〔卷次严格匹配 → 卷名无卷次时排除答案卷兜底，常规「原卷＋答案同文件」免拆源〕，见根目录 LOCAL-PATCH.md）** / fix_arabic_numerals.py（中文数字→阿拉伯数字：册别全文替换＋单元仅改题库 YAML `单元:` 字段与词表 `- 第X单元` 行、正文不动；**默认 dry-run 预览，`--apply` 才落盘**）/ **setup.py（首次配置引导：写入 vault + 建库）** / **scan_lesson.py（按课/单元/专题取题统计，`--lesson` 逗号分隔多课＝专题聚合、`--单元` 按单元字段匹配、`--卷` 卷范围筛选（逗号多值子串匹配卷目录名，如三卷洛阳期末一条命令筛齐）；多课/单元模式自动输出主考落点/兼涉调用/册别分布三段，v2.1）** / **scan_missed.py（关键词反查：正文含词但未标该课）** / **scan_volume.py（册别/卷别聚合：范围判定 + 课次热度三梯队 + 能力素养分布）** / **fix_image_formats.py（图片格式巡检修复：把 Obsidian 不显示的格式转成 jpg/png、同步改 md 引用、原图入回收站；默认只读巡检，`--fix` 出计划、`--fix --apply` 执行）** |
 | 课名词表（本 skill 内） | `<skill>/scripts/BOOK_INDEX.md`（唯一权威，随 skill 分发） |
 | 模板（本 skill 内） | `<skill>/templates/`：`历史试题模板.md`（单题）／`试题研究笔记.md`（A 档·单题/单卷研究）／`试题报告笔记.md`（B 档·课单元专题册别报告）；初始化时**全部**复制到 `{vault}/0-Template-模板/` |
 | 本机配置（本 skill 内） | `<skill>/scripts/skill_config.json`（`{"vault": "..."}`；**已入 .gitignore，不随仓库发布**） |
