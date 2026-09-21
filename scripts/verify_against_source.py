@@ -18,6 +18,14 @@
   `# 卷名` 分段并定位到 --卷 对应的那一卷**，不再需要手工拆源。
   ⚠ 定位失败会报错退出（不再静默回退）——静默回退正是旧版相似度暴跌 0.05~0.25 的根源。
 
+卷定位的两级策略（v1.10.1 起，见根目录 LOCAL-PATCH.md）：
+  ① **卷名带卷次数字**（「…卷N」形态，如「…综合检测卷2」；学年/年级数字不算卷次）
+     → 严格按卷次匹配源标题，命中不唯一即报错；
+  ② **卷名无卷次数字**（常规阶段测试卷 `{地点}{学年}学年{X}{上|下}{期中|期末}`）→
+     无可比对的卷次，此时按「排除答案卷」兜底：剔除标题含「参考答案/答案/评分标准」的卷后，
+     剩余 1 卷即采用；剩余多卷（试卷正文被拆成多个一级标题，如「XX质量检测」+「九年级历史试卷(闭卷)」）
+     则**合并**这些卷的正文。②为常规「原卷 ＋ 答案同文件」场景，避免每次都要手工拆源。
+
 退出码：存在相似度低于阈值的题 → 1（可用于流水线阻断），否则 0。
 """
 import argparse
@@ -103,24 +111,68 @@ def match_juan(vol_title, juan):
 
     按「卷名尾部的卷次数字」与「源标题中的中文/阿拉伯数字」比对。
     匹配不上时返回 False，由调用方决定是报错还是放宽。
+
+    ⚠ 目标卷名侧的卷次**只认紧跟「卷」字的数字**（综合检测卷2 / 模拟卷12 …）。
+      v1.10.1 修正：旧版泛取卷名末尾数字串，会把学年（2023-2024）或年级（9上）误当卷次——
+      实测「洛阳市涧西区2023-2024学年9上期中」被取成卷次 9，进而与源答案卷标题
+      「九年级期中考试答案」（中文「九」→9）**误匹配**，自检整卷错位。
+      非「…卷N」形态的卷名一律返回 False → 交由调用方走「排除答案卷」兜底。
     """
     # 目标卷名尾部数字：卷1 / 卷12 / 检测卷3 …（取最后一个连续数字串）
-    mj = re.findall(r'\d+', juan)
+    mj = re.search(r'卷\s*(\d{1,2})', juan)
     if not mj:
-        return False, '卷名中未找到卷次数字'
-    tgt = int(mj[-1])
+        return False, '卷名中未找到卷次数字（非「…卷N」形态）'
+    tgt = int(mj.group(1))
     # 源标题中的数字：阿拉伯或中文（中文走显式字表 cn2int）
-    ma = re.search(r'(\d{1,2})', vol_title)
+    # ⚠ 排除年份（≥3 位连续数字）与年级标识（「九年级」「九上」）——只认真正的卷次。
+    #   v1.10.1 修正：旧版 `(\d{1,2})` 会把「河南解析与检测2026历史上册 综合测试(二)」
+    #   的年份截成 20，导致「…综合检测卷2」永远匹配不上。
+    ma = re.search(r'(?<!\d)(\d{1,2})(?!\d)', vol_title)
     if ma:
         got = int(ma.group(1))
     else:
-        mc = re.search(r'([〇一二三四五六七八九十]{1,3})', vol_title)
-        if not mc:
-            return False, '源卷标题中未找到卷次数字'
-        got = cn2int(mc.group(1))
+        got = None
+        for mc in re.finditer(r'([〇一二三四五六七八九十]{1,3})', vol_title):
+            tail = vol_title[mc.end():mc.end() + 2]
+            if tail.startswith('年级') or tail[:1] in ('上', '下'):
+                continue                      # 「九年级」「九上」等年级标识，跳过
+            got = cn2int(mc.group(1))
+            if got is None:
+                return False, '源卷次「%s」无法解析为数字' % mc.group(1)
+            break
         if got is None:
-            return False, '源卷次「%s」无法解析为数字' % mc.group(1)
+            return False, '源卷标题中未找到卷次数字'
     return (got == tgt), '源卷次 %d vs 目标 %d' % (got, tgt)
+
+
+# 卷标题中的「答案类」标识：用于在多卷源文件里剔除答案卷（兜底定位用）
+ANS_VOL_KEYS = ('参考答案', '答案', '评分标准', '评分细则')
+
+
+def is_answer_vol(title):
+    """卷标题是否为答案卷（参考答案 / 九年级期中考试答案 / 评分标准 …）。"""
+    t = title or ''
+    return any(k in t for k in ANS_VOL_KEYS)
+
+
+def juan_has_serial(juan):
+    """目标卷名是否带卷次数字（「…卷N」形态）——决定是否强制按卷次匹配。"""
+    return bool(re.search(r'卷\s*\d{1,2}', juan or ''))
+
+
+def _fallback_volumes(vols, want_juan):
+    """卷名无卷次数字时的兜底定位（见本文件头「卷定位的两级策略」）。
+
+    返回 (命中列表, 说明)；命中列表为空时，说明为失败原因。
+    """
+    if juan_has_serial(want_juan):
+        return [], '卷名含卷次数字，源中无一卷匹配'
+    rest = [v for v in vols if not is_answer_vol(v['标题'])]
+    if not rest:
+        return [], '源中除答案卷外无试卷正文卷'
+    if len(rest) == 1:
+        return rest, '排除答案卷后定位到唯一试卷卷'
+    return rest, '排除答案卷后合并 %d 段试卷标题' % len(rest)
 
 
 def split_source(text, want_juan=None):
@@ -131,30 +183,41 @@ def split_source(text, want_juan=None):
 
     ⚠ 多卷源文件（陷阱 10）：必须传 want_juan（目标卷名），本函数会先按一级标题定位对应卷，
       再在该卷内切题；定位失败则**报错退出**，绝不静默回退（静默回退正是旧版的假阳性根源）。
+      卷定位的两级策略（卷次严格匹配 → 卷名无卷次数字时排除答案卷兜底）见本文件头说明。
     """
     END_TITLES = ('参考答案', '考查目标', '试题分析', '试题亮点', '试卷原题',
                   '答案', '解析', '命题立意', '解题思路')
     vols = split_volumes(text)
     if want_juan is not None and len(vols) > 1:
         hit = [v for v in vols if match_juan(v['标题'], want_juan)[0]]
-        if not hit:
-            print('!! 源文件含 %d 卷，但无一卷匹配 --卷 "%s"' % (len(vols), want_juan),
-                  file=sys.stderr)
-            print('   各卷标题：%s' % ' | '.join(v['标题'] for v in vols), file=sys.stderr)
-            print('   请核对卷次，或改用拆分后的单卷源文件。', file=sys.stderr)
-            sys.exit(2)
         if len(hit) > 1:
             print('!! 源文件中有 %d 卷匹配 --卷 "%s"，请勿混淆' % (len(hit), want_juan),
                   file=sys.stderr)
             sys.exit(2)
-        text = hit[0]['正文']
-        print('>> 多卷源文件：已定位卷「%s」（共 %d 卷）' % (hit[0]['标题'], len(vols)))
+        if hit:
+            text = hit[0]['正文']
+            print('>> 多卷源文件：已定位卷「%s」（共 %d 卷）' % (hit[0]['标题'], len(vols)))
+        else:
+            # 兜底：卷名无卷次数字时，按「排除答案卷」定位（常规「原卷 ＋ 答案同文件」场景）
+            picked, why = _fallback_volumes(vols, want_juan)
+            if not picked:
+                print('!! 源文件含 %d 卷，但无一卷匹配 --卷 "%s"（%s）'
+                      % (len(vols), want_juan, why), file=sys.stderr)
+                print('   各卷标题：%s' % ' | '.join(v['标题'] for v in vols), file=sys.stderr)
+                print('   请核对卷次，或改用拆分后的单卷源文件。', file=sys.stderr)
+                sys.exit(2)
+            text = '\n'.join(v['正文'] for v in picked)
+            print('>> 多卷源文件：卷名无卷次数字 → %s（共 %d 卷）' % (why, len(vols)))
+            print('   采用卷标题：%s' % ' | '.join(v['标题'] for v in picked))
     elif want_juan is not None and len(vols) == 1 and vols[0]['标题']:
         ok, why = match_juan(vols[0]['标题'], want_juan)
         if not ok:
-            print('!! 单卷源文件标题「%s」与 --卷 "%s" 卷次不符（%s）'
-                  % (vols[0]['标题'], want_juan, why), file=sys.stderr)
-            sys.exit(2)
+            if not juan_has_serial(want_juan) and not is_answer_vol(vols[0]['标题']):
+                print('>> 卷名无卷次数字，单卷源直接采用（源标题「%s」）' % vols[0]['标题'])
+            else:
+                print('!! 单卷源文件标题「%s」与 --卷 "%s" 卷次不符（%s）'
+                      % (vols[0]['标题'], want_juan, why), file=sys.stderr)
+                sys.exit(2)
 
     src = {}
     cur, buf = None, []

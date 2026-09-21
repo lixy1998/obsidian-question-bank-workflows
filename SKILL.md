@@ -9,7 +9,7 @@ author: 教历史的史知行
 
 # Obsidian历史题库搭建与组卷
 
-管理 Obsidian 历史题库的**全生命周期**：**存题**（录入，含查重）、**校题**（BOOK_INDEX 词表校验 + 定位字段对齐 + 要素名白名单）、**组卷**（按条件检索→用户决定→出学生/教师卷）、**去重**（一题多卷合并，v1.3.0 起）、**研题**（单课考查方向 / 册别考试范围分析，v1.6.0 起并入；**v1.9.0 起流程四报告按发布稿形态产出**——9 节结构、「对标中考」固定节、纯发布式出处、内部与发布合一；**v1.10.0 起统一 `3-试题研究/` 笔记属性**——A/B 两档字段、受控值、命名与两份模板）。
+管理 Obsidian 历史题库的**全生命周期**：**存题**（录入，含查重）、**校题**（BOOK_INDEX 词表校验 + 定位字段对齐 + 要素名白名单）、**组卷**（按条件检索→用户决定→出学生/教师卷）、**去重**（一题多卷合并，v1.3.0 起）、**研题**（单课考查方向 / 册别考试范围分析，v1.6.0 起并入；**v1.9.0 起流程四报告按发布稿形态产出**——9 节结构、「对标中考」固定节、纯发布式出处、内部与发布合一；**v1.10.0 起统一 `3-试题研究/` 笔记属性**——A/B 两档字段、受控值、命名与两份模板；**v1.10.1 起 `verify_against_source.py` 卷定位加「排除答案卷」兜底**——常规「原卷＋答案同文件」的扫描源免手工拆源）。
 
 > **不适用**：单道题的解析、与题库无关的教学设计（前者走「史料研读助手」/「历史原创命题」，后者走通用助手）。
 
@@ -48,7 +48,7 @@ author: 教历史的史知行
 | 资产 | 路径 |
 |---|---|
 | 题库库（Obsidian vault） | `{vault}/{学段}-{序号类别}/{卷名}/{卷名}_{题型}/{序号}.md`（如 `{vault}/初中-1中考真题/2026河南中考/…`；类别枚举见下） |
-| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建；`--dry-run` 只预览，检出词表外标题〔疑手工新增课/组〕时**默认中止**该册、需 `--force` 才覆盖）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / **verify_against_source.py（录入后回归自检：入库正文 ↔ MinerU 源文本 归一化逐题比对，--源/--卷/--忽略/--列出卷，退出码 1 可阻断；⚠ 本地改造：支持单文件含多卷，见根目录 LOCAL-PATCH.md）** / fix_arabic_numerals.py（中文数字→阿拉伯数字：册别全文替换＋单元仅改题库 YAML `单元:` 字段与词表 `- 第X单元` 行、正文不动；**默认 dry-run 预览，`--apply` 才落盘**）/ **setup.py（首次配置引导：写入 vault + 建库）** / **scan_lesson.py（按课/单元/专题取题统计，`--lesson` 逗号分隔多课＝专题聚合、`--单元` 按单元字段匹配、`--卷` 卷范围筛选（逗号多值子串匹配卷目录名，如三卷洛阳期末一条命令筛齐）；多课/单元模式自动输出主考落点/兼涉调用/册别分布三段，v2.1）** / **scan_missed.py（关键词反查：正文含词但未标该课）** / **scan_volume.py（册别/卷别聚合：范围判定 + 课次热度三梯队 + 能力素养分布）** / **fix_image_formats.py（图片格式巡检修复：把 Obsidian 不显示的格式转成 jpg/png、同步改 md 引用、原图入回收站；默认只读巡检，`--fix` 出计划、`--fix --apply` 执行）** |
+| 脚本（本 skill 内） | `<skill>/scripts/`：qb_schema.py / gen_problem.py / scan_questions.py / export_student_paper.py / gen_index.py（从 BOOK_INDEX 生成 1-MoC-索引 六册试题索引，词表更新后重跑重建；`--dry-run` 只预览，检出词表外标题〔疑手工新增课/组〕时**默认中止**该册、需 `--force` 才覆盖）/ **read_docx.py（文字版 docx 结构化提取，免 MinerU）** / **pull_pdf_images.py（从官方 PDF 裁剪补图）** / **dedupe_questions.py（查重 + 一题多卷合并：--scan/--check/--merge/--list-merged/--rollback）** / **verify_paper_layout.py（试卷版式校验器：--docx 查字号/行距/字体/页面尺寸/图片/答案分页；--卷 查结构层）** / **verify_against_source.py（录入后回归自检：入库正文 ↔ MinerU 源文本 归一化逐题比对，--源/--卷/--忽略/--列出卷，退出码 1 可阻断；⚠ 本地改造：支持单文件含多卷 + 卷定位两级策略〔卷次严格匹配 → 卷名无卷次时排除答案卷兜底，常规「原卷＋答案同文件」免拆源〕，见根目录 LOCAL-PATCH.md）** / fix_arabic_numerals.py（中文数字→阿拉伯数字：册别全文替换＋单元仅改题库 YAML `单元:` 字段与词表 `- 第X单元` 行、正文不动；**默认 dry-run 预览，`--apply` 才落盘**）/ **setup.py（首次配置引导：写入 vault + 建库）** / **scan_lesson.py（按课/单元/专题取题统计，`--lesson` 逗号分隔多课＝专题聚合、`--单元` 按单元字段匹配、`--卷` 卷范围筛选（逗号多值子串匹配卷目录名，如三卷洛阳期末一条命令筛齐）；多课/单元模式自动输出主考落点/兼涉调用/册别分布三段，v2.1）** / **scan_missed.py（关键词反查：正文含词但未标该课）** / **scan_volume.py（册别/卷别聚合：范围判定 + 课次热度三梯队 + 能力素养分布）** / **fix_image_formats.py（图片格式巡检修复：把 Obsidian 不显示的格式转成 jpg/png、同步改 md 引用、原图入回收站；默认只读巡检，`--fix` 出计划、`--fix --apply` 执行）** |
 | 课名词表（本 skill 内） | `<skill>/scripts/BOOK_INDEX.md`（唯一权威，随 skill 分发） |
 | 模板（本 skill 内） | `<skill>/templates/`：`历史试题模板.md`（单题）／`试题研究笔记.md`（A 档·单题/单卷研究）／`试题报告笔记.md`（B 档·课单元专题册别报告）；初始化时**全部**复制到 `{vault}/0-Template-模板/` |
 | 本机配置（本 skill 内） | `<skill>/scripts/skill_config.json`（`{"vault": "..."}`；**已入 .gitignore，不随仓库发布**） |
