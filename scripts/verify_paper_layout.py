@@ -108,7 +108,53 @@ def _size_pt(run, para, doc):
     return None
 
 
-def verify_docx(path, min_body=12.0, min_sub=9.0, min_net_mm=3.0, rpt=None):
+def _check_tables_figures(manifest, doc, rpt):
+    """D1 表图完整性：按清单还原题库题目，数出「应有几张表、几张图」，与卷面实际数比对。
+
+    起因（2026-09-25，用户实测发现）：`split_stem_opts` 曾把 HTML `<table>` 与 md 管道表
+    `re.sub` 删掉，**200 道表格题的表格在 Word 卷上静默消失**，而字号/行距/图片类检查
+    全部照常通过 —— 说明"版式合规"不等于"内容没丢"。本项专门堵这个口子。
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import export_student_paper as exp
+        man = exp.load_manifest(Path(manifest))
+        recs, miss = exp.resolve_items(exp.norm_items(man),
+                                       exp.build_index(verbose=False), strict=False)
+    except Exception as e:                        # 清单坏了不应阻断版式校验
+        rpt.add("D1", LEVEL_MANUAL, f"表图完整性未比对（清单不可用：{e}）")
+        return
+
+    exp_tbl = exp_img = 0
+    for r in recs:
+        no_img, imgs = exp.extract_images(r["body"])
+        exp_img += len(imgs)
+        exp_tbl += len(exp.extract_tables(no_img)[1])
+
+    W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    n_tbl, n_img = len(doc.tables), len(doc.element.body.findall(f".//{W}drawing"))
+
+    if exp_tbl == n_tbl and exp_img == n_img:
+        rpt.add("D1", LEVEL_OK,
+                f"表图完整性：题库 {exp_tbl} 表 / {exp_img} 图，卷面一致（{n_tbl} 表 / {n_img} 图）")
+    else:
+        if exp_tbl > n_tbl:
+            rpt.add("D1", LEVEL_BAD,
+                    f"卷面缺表格：题库应 {exp_tbl} 张，卷面只有 {n_tbl} 张（少 {exp_tbl - n_tbl}）",
+                    "表格可能被当语法清掉了——检查 extract_tables 摘取与 render_docx 的表格渲染")
+        if exp_img > n_img:
+            rpt.add("D1", LEVEL_BAD,
+                    f"卷面缺图片：题库正文应 {exp_img} 张，卷面只有 {n_img} 张（少 {exp_img - n_img}）",
+                    "检查 extract_images 占位与 add_picture 插入链路")
+        if exp_tbl < n_tbl or exp_img < n_img:
+            rpt.add("D1", LEVEL_MANUAL,
+                    f"卷面表/图多于题库统计（卷 {n_tbl} 表 {n_img} 图 vs 题库 {exp_tbl} 表 {exp_img} 图）"
+                    "——可能含答题卡选题栏等非题目元素，人工确认")
+    if miss:
+        rpt.add("D1", LEVEL_MANUAL, f"清单有 {len(miss)} 条未定位，表图比对口径可能偏小")
+
+
+def verify_docx(path, min_body=12.0, min_sub=9.0, min_net_mm=3.0, rpt=None, manifest=None):
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.enum.text import WD_LINE_SPACING
@@ -283,6 +329,9 @@ def verify_docx(path, min_body=12.0, min_sub=9.0, min_net_mm=3.0, rpt=None):
                 f"页面尺寸 {w_mm:.0f}×{h_mm:.0f}mm → {mode}；版心宽 "
                 f"{body_w_mm:.0f}mm" if body_w_mm else f"页面尺寸 {w_mm:.0f}×{h_mm:.0f}mm → {mode}")
 
+    if manifest:                                  # D1 表图完整性（需 --清单 才能比对）
+        _check_tables_figures(manifest, doc, rpt)
+
     for code, desc in MANUAL_ITEMS:
         if not any(i["条款"] == code for i in rpt.items):
             rpt.add(code, LEVEL_MANUAL, desc)
@@ -353,6 +402,7 @@ def verify_volume(vol, rpt=None):
 def main():
     ap = argparse.ArgumentParser(description="试卷版式校验器（国标合规 + 结构 + 图文混排可判定项）")
     ap.add_argument("--docx", help="Word 成卷路径")
+    ap.add_argument("--清单", help="组卷清单：给了就做 D1「表图完整性」比对（题库有表/有图→卷面是否也在）")
     ap.add_argument("--卷", help="题库内卷名（结构层校验，需已配置 vault）")
     ap.add_argument("--json", action="store_true", help="输出 JSON")
     ap.add_argument("--正文最少字号", type=float, default=12.0, help="正文最小字号 pt（默认 12=小四）")
@@ -369,7 +419,8 @@ def main():
         p = Path(args.docx)
         if not p.exists():
             sys.exit(f"[失败] 文件不存在：{p}")
-        rpt = verify_docx(p, args.正文最少字号, args.辅文最少字号, args.行空最少)
+        rpt = verify_docx(p, args.正文最少字号, args.辅文最少字号, args.行空最少,
+                          manifest=args.清单)
         bad += rpt.dump(p.name, args.json)
     if args.卷:
         rpt = verify_volume(args.卷)
