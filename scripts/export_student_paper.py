@@ -380,6 +380,30 @@ def is_choice(r: dict) -> bool:
     return rtype_of(r) == "选择题"
 
 
+def sub_scores(body: str, total, n: int) -> list:
+    """各小问分值：优先取设问末尾的「（X分）」；取不齐则把整题分值均分。"""
+    sc = [int(x) for x in re.findall(r"[（(]\s*(\d+)\s*分[^）)]*[）)]", body)]
+    if len(sc) == n:                                 # 只在数量吻合时采信，避免误抓材料里的分数
+        return sc
+    if isinstance(total, int) and total > 0 and n > 0:
+        base, rest = divmod(total, n)
+        return [base + (1 if i < rest else 0) for i in range(n)]
+    return [None] * n
+
+
+def blanks_for(score, fixed: int = 0) -> int:
+    """答题卡：某小问的留白行数。
+
+    fixed > 0 → 用固定行数（命令行 `--答题卡行数`）；
+    否则**按分值算**：约 2 分/行、下限 2 行（对齐参考卡「12 分题 ÷ 3 小问 = 每问 2 行」的实测密度）。
+    """
+    if fixed and fixed > 0:
+        return fixed
+    if not score or score <= 0:
+        return 2
+    return max(2, round(score / 2))
+
+
 def big_title(recs: list, choice: bool) -> str:
     """大题标题（《试卷排版规范》§二）：选择题给「每小题X分，共Y分」，非选择题给总分。"""
     from collections import Counter
@@ -807,18 +831,20 @@ def render_answer_card(man: dict, recs: list, out: Path,
         for n, r in ot:
             subs = list(dict.fromkeys(
                 re.findall(r"[（(]\s*(\d+)\s*[）)]", r["body"])))
-            if not subs:                             # 无小问（小论文/论述题）：整题留白更多
+            total = int(r["分值"]) if str(r["分值"]).strip().isdigit() else None
+            if not subs:                             # 无小问（小论文/论述题）：按整题分值留白
                 p = para(doc, after=0, keepn=True)
                 run(p, f"{n}．", 12)
-                for _ in range(max(blanks, 6)):
+                for _ in range(max(blanks_for(total, blanks), 6)):
                     para(doc, after=0)
                 para(doc, size=12, line=12, after=0)
                 continue
+            scores = sub_scores(r["body"], total, len(subs))
             for si, sub in enumerate(subs):
                 label = f"{n}．" if si == 0 else ""
                 p = para(doc, after=0, keepn=True)
                 run(p, f"{label}（{sub}）", 12)
-                for _ in range(blanks):
+                for _ in range(blanks_for(scores[si], blanks)):
                     para(doc, after=0)
             para(doc, size=12, line=12, after=0)
 
@@ -1080,7 +1106,8 @@ def main():
     ap.add_argument("--答题卡", help="另出答题卡到该路径（给了 --docx 时默认同目录同出）")
     ap.add_argument("--无答题卡", action="store_true", help="给了 --docx 也不出答题卡")
     ap.add_argument("--答题卡每行", type=int, default=10, help="选择题答题栏每行题数（默认 10）")
-    ap.add_argument("--答题卡行数", type=int, default=2, help="非选择题每小问留白行数（默认 2）")
+    ap.add_argument("--答题卡行数", type=int, default=0,
+                    help="非选择题留白行数；0＝按分值自动（约2分/行、下限2行，默认），>0＝固定行数")
     ap.add_argument("--体检", action="store_true", help="只打印卷面体检，不导出")
     args = ap.parse_args()
 
@@ -1135,7 +1162,8 @@ def main():
         card = Path(args.docx).parent / f"{vol_title}_答题卡.docx"
     if card:
         render_answer_card(man, recs, card, args.答题卡每行, args.答题卡行数)
-        print(f"[导出] {card}（答题卡，每行 {args.答题卡每行} 题 / 每问留白 {args.答题卡行数} 行）")
+        blank_desc = f"每问 {args.答题卡行数} 行（固定）" if args.答题卡行数 else "留白按分值自动"
+        print(f"[导出] {card}（答题卡，每行 {args.答题卡每行} 题 / {blank_desc}）")
     return 0
 
 
