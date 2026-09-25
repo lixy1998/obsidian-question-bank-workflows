@@ -753,8 +753,17 @@ def render_answer_card(man: dict, recs: list, out: Path,
     for txt in (man.get("标题") or man.get("卷名") or "", "答　题　卡"):
         p = para(doc, size=14, align=WD_ALIGN_PARAGRAPH.CENTER, after=2, keepn=True)
         setrun(p.add_run(txt), 14, True, "黑体")
-    p = para(doc, after=6, keepn=True)
-    setrun(p.add_run("姓名__________　班级__________　考场__________　考号__________"), 12)
+
+    # 姓名栏放**页眉**（页面最上方、每页都有）——
+    # ⚠ 放正文会被装订钉盖住第二页顶部的作答区（2026-09-25 用户实测反馈）
+    s.header_distance = Mm(10)
+    hp = s.header.paragraphs[0]
+    hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hpf = hp.paragraph_format
+    hpf.line_spacing = Pt(20)
+    hpf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+    hpf.space_before = hpf.space_after = Pt(0)
+    setrun(hp.add_run("姓名__________　班级__________　考场__________　考号__________"), 12)
 
     pairs = list(enumerate(recs, 1))
     ch = [(n, r) for n, r in pairs if is_choice(r)]
