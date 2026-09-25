@@ -101,10 +101,13 @@ python scan_questions.py --卷 <卷名>               # ③ 输出「✓ 无问�
 python scan_questions.py --dump               # 全量题目元数据（按条件过滤候选）
 python export_student_paper.py --卷 <来源卷> --only 01,03,05 --模式 学生   # 学生版
 python export_student_paper.py --卷 <来源卷> --only 01,03,05 --模式 教师   # 教师版
+# 跨卷组卷：一条命令拼成一卷（图片按卷分目录，须显式 --输出）
+python export_student_paper.py --卷 "<卷A>,<卷B>" --only "<卷A>:01,03;<卷B>:07" \
+       --模式 学生 --输出 <卷外目录>/期中卷_学生版.md
 python verify_paper_layout.py --docx "<成卷.docx>"   # 版式校验（有「✗ 不合规」不得交付）
 ```
 
-> `--only` 只导出用户圈定的题号；学生版自动剥离答案与解析。成卷后按 `references/试卷排版规范.md` 定版：正文 **宋体 12pt（小四）+ 固定行距 24pt** 方可满足 GB 40070-2021 的强制下限；页面可选 A4 打印模式或 185×260mm 中考仿真模式。
+> `--only` 只导出用户圈定的题号（**书写顺序即卷面顺序**；题号 `1` 与 `01` 互通）；学生版自动剥离答案与解析。成卷后按 `references/试卷排版规范.md` 定版：正文 **宋体 12pt（小四）+ 固定行距 24pt** 方可满足 GB 40070-2021 的强制下限；页面可选 A4 打印模式或 185×260mm 中考仿真模式。
 
 ### 4. 研题（考查方向 / 考试范围分析）
 
