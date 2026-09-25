@@ -573,7 +573,9 @@ def render_md(man: dict, recs: list, mode: str, mark_src: bool) -> str:
 
 def render_docx(man: dict, recs: list, mode: str, out: Path,
                 mark_src: bool, img_width_mm: float = 78.0,
-                img_right: bool = False) -> None:
+                img_right: bool = False,
+                card_inline: bool = False, card_per_row: int = 10,
+                card_blanks: int = 0) -> None:
     from docx import Document
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_BREAK
@@ -777,6 +779,11 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
                 p = para(doc, size=10.5, line=20, left=12, after=0)
                 run(p, f"[考察角度] {clean(r['角度'])}", 10.5)
 
+    # 答题区附卷末（小测试/周测：无独立答题卡文件，学生卷末尾分页后接「附：答题卡」）
+    if card_inline:
+        doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+        render_card_body(doc, man, recs, card_per_row, card_blanks, inline=True)
+
     # 页脚页码域
     from docx.oxml import OxmlElement
     fp = doc.sections[0].footer.paragraphs[0]
@@ -798,83 +805,62 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
 # 七、卷面体检
 # ============================================================================
 
-def render_answer_card(man: dict, recs: list, out: Path,
-                       per_row: int = 10, blanks: int = 2) -> None:
-    """答题卡（校级测试·手阅版，A4 两页）。版式照 2026.09.22 月考答题卡实物：
+def card_setrun(rr, size=12, bold=False, cn="宋体"):
+    from docx.oxml.ns import qn
+    from docx.shared import Pt
+    rr.font.name = "Times New Roman"
+    rr.font.size = Pt(size)
+    rr.font.bold = bold
+    rr._element.rPr.rFonts.set(qn("w:eastAsia"), cn)
+    return rr
 
-    · 页面 A4，**左边距 30mm 作装订区**（右 20 / 上 18 / 下 18，页脚距 12.7）
-    · 标题两行：卷名 ＋「答　题　卡」，黑体 14pt 居中
-    · 姓名栏一行（姓名/班级/考场/考号）
-    · 一、选择题（每小题X分，共Y分）＋ **全框线表格**（`题号`／`答案` 两行，每行 per_row 题，
-      首列 16mm、其余 14.4mm、行高 8.5mm）
-    · 二、非选择题（共Z分）＋ 逐题逐小问「21．（1）」各留 blanks 行
-    · 页脚「历史答题卡　第 X 页　共 Y 页」
+
+def card_run(p, text, size=12, bold=False, cn="宋体"):
+    return card_setrun(p.add_run(text), size, bold, cn)
+
+
+def card_para(doc, size=12, line=24, align=None, after=0, keepn=False):
+    from docx.enum.text import WD_LINE_SPACING
+    from docx.shared import Pt
+    p = doc.add_paragraph()
+    pf = p.paragraph_format
+    pf.line_spacing = Pt(line)
+    pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+    pf.space_before, pf.space_after = Pt(0), Pt(after)
+    if align is not None:
+        p.alignment = align
+    pf.keep_with_next = keepn
+    return p
+
+
+def render_card_body(doc, man, recs, per_row=10, blanks=0, inline=False):
+    """答题卡**内容**（不含页面设置与页眉页脚）——独立答题卡与「卷末附加」两种模式共用。
+
+    inline=False：独立答题卡 —— 标题两行（卷名＋「答　题　卡」），姓名栏由调用方写进首页页眉；
+    inline=True ：卷末附加（小测试/周测不出独立答题卡文件）—— 简版标题「附：答题卡」＋正文姓名栏
+    （卷尾无首页装订遮挡问题，姓名栏放正文即可）。
     """
-    from docx import Document
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
     from docx.shared import Mm, Pt
 
-    def setrun(rr, size=12, bold=False, cn="宋体"):
-        rr.font.name = "Times New Roman"
-        rr.font.size = Pt(size)
-        rr.font.bold = bold
-        rr._element.rPr.rFonts.set(qn("w:eastAsia"), cn)
-        return rr
-
-    def run(p, text, size=12, bold=False, cn="宋体"):
-        return setrun(p.add_run(text), size, bold, cn)
-
-    def para(doc, size=12, line=24, align=None, after=0, keepn=False):
-        p = doc.add_paragraph()
-        pf = p.paragraph_format
-        pf.line_spacing = Pt(line)
-        pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-        pf.space_before, pf.space_after = Pt(0), Pt(after)
-        if align is not None:
-            p.alignment = align
-        pf.keep_with_next = keepn
-        return p
-
-    doc = Document()
-    s = doc.sections[0]
-    s.page_width, s.page_height = Mm(210), Mm(297)
-    s.left_margin, s.right_margin = Mm(30), Mm(20)
-    s.top_margin = s.bottom_margin = Mm(18)
-    s.footer_distance = Mm(12.7)
-    st = doc.styles["Normal"]
-    st.font.name = "Times New Roman"
-    st.font.size = Pt(12)
-    st.element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
-
-    for txt in (man.get("标题") or man.get("卷名") or "", "答　题　卡"):
-        p = para(doc, size=14, align=WD_ALIGN_PARAGRAPH.CENTER, after=2, keepn=True)
-        setrun(p.add_run(txt), 14, True, "黑体")
-
-    # 姓名栏放**首页页眉**（页面最上方）——只第 1 页有，第 2 页起不重复。
-    # ⚠ 不能放正文：那样第二页顶部直接是学生作答区，装订时被钉住/盖住（2026-09-25 用户实测反馈）
-    s.header_distance = Mm(10)
-    s.different_first_page_header_footer = True          # 首页页眉页脚独立
-    fh = s.first_page_header
-    fh.is_linked_to_previous = False
-    hp = fh.paragraphs[0]
-    hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    hpf = hp.paragraph_format
-    hpf.line_spacing = Pt(20)
-    hpf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-    hpf.space_before = hpf.space_after = Pt(0)
-    setrun(hp.add_run("姓名__________　班级__________　考场__________　考号__________"), 12)
-    s.header.is_linked_to_previous = False               # 后续页页眉留空
+    if inline:
+        p = card_para(doc, size=14, align=WD_ALIGN_PARAGRAPH.CENTER, after=2, keepn=True)
+        card_run(p, "附：答题卡", 14, True, "黑体")
+        p = card_para(doc, after=6, keepn=True)
+        card_run(p, "姓名__________　班级__________　考场__________　考号__________", 12)
+    else:
+        for txt in (man.get("标题") or man.get("卷名") or "", "答　题　卡"):
+            p = card_para(doc, size=14, align=WD_ALIGN_PARAGRAPH.CENTER, after=2, keepn=True)
+            card_setrun(p.add_run(txt), 14, True, "黑体")
 
     pairs = list(enumerate(recs, 1))
     ch = [(n, r) for n, r in pairs if is_choice(r)]
     ot = [(n, r) for n, r in pairs if not is_choice(r)]
 
     if ch:
-        p = para(doc, after=2, keepn=True)
-        run(p, clean(big_title(recs, True)), 12)
+        p = card_para(doc, after=2, keepn=True)
+        card_run(p, clean(big_title(recs, True)), 12)
         for start in range(0, len(ch), per_row):
             grp = ch[start:start + per_row]
             t = doc.add_table(rows=2, cols=len(grp) + 1)
@@ -894,15 +880,15 @@ def render_answer_card(man: dict, recs: list, out: Path,
                     pf.line_spacing = Pt(20)
                     pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
                     pf.space_before = pf.space_after = Pt(0)
-            setrun(t.cell(0, 0).paragraphs[0].add_run("题号"), 10.5)
-            setrun(t.cell(1, 0).paragraphs[0].add_run("答案"), 10.5)
+            card_setrun(t.cell(0, 0).paragraphs[0].add_run("题号"), 10.5)
+            card_setrun(t.cell(1, 0).paragraphs[0].add_run("答案"), 10.5)
             for j, (qn_, _r) in enumerate(grp, 1):
-                setrun(t.cell(0, j).paragraphs[0].add_run(str(qn_)), 10.5)
-            para(doc, size=12, line=12, after=4)
+                card_setrun(t.cell(0, j).paragraphs[0].add_run(str(qn_)), 10.5)
+            card_para(doc, size=12, line=12, after=4)
 
     if ot:
-        p = para(doc, after=2, keepn=True)
-        run(p, clean(big_title(recs, False)), 12)
+        p = card_para(doc, after=2, keepn=True)
+        card_run(p, clean(big_title(recs, False)), 12)
         for n, r in ot:
             subs = list(dict.fromkeys(
                 re.findall(r"[（(]\s*(\d+)\s*[）)]", r["body"])))
@@ -910,13 +896,13 @@ def render_answer_card(man: dict, recs: list, out: Path,
             seg = []                                 # 本题占用的段落，用于「整题尽量同页」
 
             def mk(size=12, line=24, after=0):
-                p = para(doc, size=size, line=line, after=after)
+                p = card_para(doc, size=size, line=line, after=after)
                 seg.append(p)
                 return p
 
             if not subs:                             # 无小问（小论文/论述题）：按整题分值留白
                 p = mk()
-                run(p, f"{n}．", 12)
+                card_run(p, f"{n}．", 12)
                 for _ in range(max(blanks_for(total, blanks), 6)):
                     mk()
                 mk(size=12, line=12)
@@ -925,7 +911,7 @@ def render_answer_card(man: dict, recs: list, out: Path,
                 for si, sub in enumerate(subs):
                     label = f"{n}．" if si == 0 else ""
                     p = mk()
-                    run(p, f"{label}（{sub}）", 12)
+                    card_run(p, f"{label}（{sub}）", 12)
                     for _ in range(blanks_for(scores[si], blanks)):
                         mk()
                 mk(size=12, line=12)
@@ -934,19 +920,67 @@ def render_answer_card(man: dict, recs: list, out: Path,
             for p in seg[:-1]:
                 p.paragraph_format.keep_with_next = True
 
+
+def render_answer_card(man: dict, recs: list, out: Path,
+                       per_row: int = 10, blanks: int = 2) -> None:
+    """答题卡（**独立文件**，校级测试·手阅版，A4 两页）。版式照 2026.09.22 月考答题卡实物：
+
+    · 页面 A4，**左边距 30mm 作装订区**（右 20 / 上 18 / 下 18，页脚距 12.7）
+    · 标题两行：卷名 ＋「答　题　卡」，黑体 14pt 居中
+    · 姓名栏在**首页页眉**（页面最上方，仅第 1 页；正文放会被装订钉盖住第二页作答区）
+    · 选择题 **全框线表格**（`题号`／`答案` 两行，每行 per_row 题，首列 16mm、其余 14.4mm、行高 8.5mm）
+    · 非选择题逐题逐小问「21．（1）」各留 blanks 行（0＝按分值自动）
+    · 页脚「历史答题卡　第 X 页　共 Y 页」
+
+    小测试/周测的「答题区附卷末」不走本函数——用 render_docx 的 card_inline 路径（同一内容渲染）。
+    """
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Mm, Pt
+
+    doc = Document()
+    s = doc.sections[0]
+    s.page_width, s.page_height = Mm(210), Mm(297)
+    s.left_margin, s.right_margin = Mm(30), Mm(20)
+    s.top_margin = s.bottom_margin = Mm(18)
+    s.footer_distance = Mm(12.7)
+    st = doc.styles["Normal"]
+    st.font.name = "Times New Roman"
+    st.font.size = Pt(12)
+    st.element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+
+    # 姓名栏放**首页页眉**（页面最上方）——只第 1 页有，第 2 页起不重复。
+    # ⚠ 不能放正文：那样第二页顶部直接是学生作答区，装订时被钉住/盖住（2026-09-25 用户实测反馈）
+    s.header_distance = Mm(10)
+    s.different_first_page_header_footer = True          # 首页页眉页脚独立
+    fh = s.first_page_header
+    fh.is_linked_to_previous = False
+    hp = fh.paragraphs[0]
+    hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hpf = hp.paragraph_format
+    hpf.line_spacing = Pt(20)
+    hpf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+    hpf.space_before = hpf.space_after = Pt(0)
+    card_setrun(hp.add_run("姓名__________　班级__________　考场__________　考号__________"), 12)
+    s.header.is_linked_to_previous = False               # 后续页页眉留空
+
+    render_card_body(doc, man, recs, per_row, blanks, inline=False)
+
     # 页脚：首页与后续页都要页码（启用「首页不同」后两处须分别写）
     for part in (s.footer, s.first_page_footer):
         part.is_linked_to_previous = False
         fp = part.paragraphs[0]
         fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run(fp, "历史答题卡\u3000第 ", 9)
+        card_run(fp, "历史答题卡\u3000第 ", 9)
         for instr in ("PAGE", "NUMPAGES"):
             fld = OxmlElement("w:fldSimple")
             fld.set(qn("w:instr"), instr)
             fp._p.append(fld)
             if instr == "PAGE":
-                run(fp, " 页\u3000共 ", 9)
-        run(fp, " 页", 9)
+                card_run(fp, " 页\u3000共 ", 9)
+        card_run(fp, " 页", 9)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(out))
@@ -1194,6 +1228,9 @@ def main():
     ap.add_argument("--答题卡每行", type=int, default=10, help="选择题答题栏每行题数（默认 10）")
     ap.add_argument("--答题卡行数", type=int, default=0,
                     help="非选择题留白行数；0＝按分值自动（约2分/行、下限2行，默认），>0＝固定行数")
+    ap.add_argument("--答题卡位置", choices=["独立", "卷末"], default="独立",
+                    help="独立=单独答题卡文件（默认，月考/期中期末）；"
+                         "卷末=答题区附在学生卷 docx 末尾（小测试/周测，不出独立文件）")
     ap.add_argument("--体检", action="store_true", help="只打印卷面体检，不导出")
     args = ap.parse_args()
 
@@ -1238,13 +1275,18 @@ def main():
     out.write_text(render_md(man, recs, args.模式, args.标来源), encoding="utf-8")
     print(f"[导出] {out}（{len(recs)} 题，{args.模式}版 md）")
 
+    inline = args.答题卡位置 == "卷末"
     if args.docx:
         dx = Path(args.docx)
-        render_docx(man, recs, args.模式, dx, args.标来源, args.图片宽, args.图靠右)
+        render_docx(man, recs, args.模式, dx, args.标来源, args.图片宽, args.图靠右,
+                    card_inline=(inline and args.模式 == "学生"),
+                    card_per_row=args.答题卡每行, card_blanks=args.答题卡行数)
         print(f"[导出] {dx}（{len(recs)} 题，{args.模式}版 docx）")
+        if inline and args.模式 != "学生":
+            print("  · 答题区附卷末仅对学生卷生效，教师卷已跳过")
 
     card = Path(args.答题卡) if args.答题卡 else None
-    if card is None and args.docx and not args.无答题卡:
+    if card is None and args.docx and not args.无答题卡 and not inline:
         card = Path(args.docx).parent / f"{vol_title}_答题卡.docx"
     if card:
         render_answer_card(man, recs, card, args.答题卡每行, args.答题卡行数)
