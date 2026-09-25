@@ -832,21 +832,32 @@ def render_answer_card(man: dict, recs: list, out: Path,
             subs = list(dict.fromkeys(
                 re.findall(r"[（(]\s*(\d+)\s*[）)]", r["body"])))
             total = int(r["分值"]) if str(r["分值"]).strip().isdigit() else None
+            seg = []                                 # 本题占用的段落，用于「整题尽量同页」
+
+            def mk(size=12, line=24, after=0):
+                p = para(doc, size=size, line=line, after=after)
+                seg.append(p)
+                return p
+
             if not subs:                             # 无小问（小论文/论述题）：按整题分值留白
-                p = para(doc, after=0, keepn=True)
+                p = mk()
                 run(p, f"{n}．", 12)
                 for _ in range(max(blanks_for(total, blanks), 6)):
-                    para(doc, after=0)
-                para(doc, size=12, line=12, after=0)
-                continue
-            scores = sub_scores(r["body"], total, len(subs))
-            for si, sub in enumerate(subs):
-                label = f"{n}．" if si == 0 else ""
-                p = para(doc, after=0, keepn=True)
-                run(p, f"{label}（{sub}）", 12)
-                for _ in range(blanks_for(scores[si], blanks)):
-                    para(doc, after=0)
-            para(doc, size=12, line=12, after=0)
+                    mk()
+                mk(size=12, line=12)
+            else:
+                scores = sub_scores(r["body"], total, len(subs))
+                for si, sub in enumerate(subs):
+                    label = f"{n}．" if si == 0 else ""
+                    p = mk()
+                    run(p, f"{label}（{sub}）", 12)
+                    for _ in range(blanks_for(scores[si], blanks)):
+                        mk()
+                mk(size=12, line=12)
+            # 「同一题的若干小问尽量同页」（方便批改）：除末段外全部「与下段同页」，
+            # 整题放不下时整体下移，不会把 (1) 留在上页、其余甩到下页
+            for p in seg[:-1]:
+                p.paragraph_format.keep_with_next = True
 
     # 页脚：首页与后续页都要页码（启用「首页不同」后两处须分别写）
     for part in (s.footer, s.first_page_footer):
