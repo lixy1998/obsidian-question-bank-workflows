@@ -239,6 +239,9 @@ def clean(t: str) -> str:
        只压成一个会丢版式（`分  建` 两个空格一个都不匹配单空格正则，最后被整段删掉）。
     """
     t = re.sub(r"[（(][\u3000 \t]*[）)]", "\ue002", t)          # 保护作答括号
+    t = re.sub(r"^\s*>\s?", "", t)                              # md 引用符（题库正文偶带）
+    t = re.sub(r"^\s*[-*+]\s+", "", t)                          # md 列表符
+    t = t.replace("**", "").replace("__", "")                   # md 强调符
     t = t.replace("\u3000", " ")
     t = re.sub(rf"(?<=[{CJK}])(?P<sp> +)(?=[{CJK}])",
                lambda m: "\u3000" * len(m.group("sp")), t)
@@ -271,7 +274,9 @@ def extract_images(body: str) -> tuple:
             if not s:
                 j += 1
                 continue
-            if (re.match(r"^[（(]\d+[）)]", s) or re.match(r"^[（(][A-DＡ-Ｄ][）)]", s)
+            # ⚠ 下一张图片行也必须停 —— 否则会把后续图与图注一并吃成第一张的图注
+            if (re.match(r"^!\[", s) or re.match(r"^[（(]\d+[）)]", s)
+                    or re.match(r"^[（(][A-DＡ-Ｄ][）)]", s)
                     or s.startswith("——") or re.match(r"^材料[一二三四五六]", s)):
                 break
             cap.append(clean(s))
@@ -358,13 +363,49 @@ def reorder_opts(opts: list, rec: dict) -> tuple:
 
 
 def opts_md(opts: list) -> str:
-    """选项卷面文本：两项一行、全角空格分隔。"""
+    """选项卷面文本：两项一行、`A．` 全角顿点、项间全角空格×2（《试卷排版规范》§三/§12.4）。"""
     rows = []
     for i in range(0, len(opts) - 1, 2):
-        rows.append(f"({'ABCD'[i]}) {opts[i]}\u3000\u3000({'ABCD'[i + 1]}) {opts[i + 1]}")
+        rows.append(f"{'ABCD'[i]}．{opts[i]}\u3000\u3000{'ABCD'[i + 1]}．{opts[i + 1]}")
     if len(opts) % 2:
-        rows.append(f"({'ABCD'[len(opts) - 1]}) {opts[-1]}")
+        rows.append(f"{'ABCD'[len(opts) - 1]}．{opts[-1]}")
     return "\n".join(rows)
+
+
+def rtype_of(r: dict) -> str:
+    return str(r["fm"].get("题型", "")).strip()
+
+
+def is_choice(r: dict) -> bool:
+    return rtype_of(r) == "选择题"
+
+
+def big_title(recs: list, choice: bool) -> str:
+    """大题标题（《试卷排版规范》§二）：选择题给「每小题X分，共Y分」，非选择题给总分。"""
+    from collections import Counter
+    part = [r for r in recs if is_choice(r) == choice]
+    tot = sum(int(r["分值"]) for r in part if str(r["分值"]).strip().isdigit())
+    if choice:
+        per = Counter(str(r["分值"]).strip() for r in part).most_common(1)[0][0]
+        if per.isdigit() and int(per) * len(part) == tot:      # 分值统一才写「每小题X分」
+            return f"一、选择题（每小题{per}分，共{tot}分）"
+        return f"一、选择题（共{len(part)}小题，{tot}分）"
+    return f"二、非选择题（共{tot}分）"
+
+
+def section_marks(recs: list) -> list:
+    """返回 [(卷面序号, 该处需插入的大题标题或 None), …]。"""
+    marks, switched = [], False
+    for n, r in enumerate(recs, 1):
+        if n == 1:
+            marks.append((n, big_title(recs, is_choice(r))))
+            switched = not is_choice(r)
+        elif not is_choice(r) and not switched and any(is_choice(x) for x in recs):
+            marks.append((n, big_title(recs, False)))
+            switched = True
+        else:
+            marks.append((n, None))
+    return marks
 
 
 # ============================================================================
@@ -411,17 +452,19 @@ def render_md(man: dict, recs: list, mode: str, mark_src: bool) -> str:
     parts = header_md(man)
     if parts:
         parts.append("")
-    for n, r in enumerate(recs, 1):
+    for n, mark in section_marks(recs):
+        if mark:
+            parts.append(f"**{mark}**")
+            parts.append("")
+        r = recs[n - 1]
         body, new_ans = compose_md_body(rewrite_img(r["body"], r["vol"]), r)
         r["_ans"] = new_ans if new_ans else r["fm"].get("答案", "")
-        rtype = str(r["fm"].get("题型", "")).strip()
         no = f"{n}．"
-        if rtype and rtype != "选择题" and str(r["分值"]).strip().isdigit():
-            no = f"{n}．（{r['分值']}分）"          # 非选择题分值紧随题号（河南惯例）
-        line = f"{no}{body.strip()}"
+        if not is_choice(r) and str(r["分值"]).strip().isdigit():
+            no += f"（{r['分值']}分）"              # 非选择题分值紧随题号（§四）
         if mark_src and mode == "学生" and r["来源括注"]:
-            line = line.rstrip() + f"　{r['来源括注']}"
-        parts.append(line)
+            no += str(r["来源括注"])                 # 来源括注紧跟题号后（§12.1）
+        parts.append(f"{no}{body.strip()}")
         if mode == "教师":
             fm = r["fm"]
             tail = [f"**答案**：{r['_ans']}"]
@@ -452,8 +495,10 @@ def render_md(man: dict, recs: list, mode: str, mark_src: bool) -> str:
 # ============================================================================
 
 def render_docx(man: dict, recs: list, mode: str, out: Path,
-                mark_src: bool, img_width_mm: float = 78.0) -> None:
+                mark_src: bool, img_width_mm: float = 78.0,
+                img_right: bool = False) -> None:
     from docx import Document
+    from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_BREAK
     from docx.oxml.ns import qn
     from docx.shared import Mm, Pt
@@ -515,7 +560,11 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
         para(doc, size=10.5, line=12, after=0)
 
     # 题目
-    for n, r in enumerate(recs, 1):
+    for n, mark in section_marks(recs):
+        r = recs[n - 1]
+        if mark:                                     # 大题标题（§二）
+            p = para(doc, before=6, after=2, keepn=True)
+            run(p, clean(mark), 12, True)
         img_dir = out.parent / "images" / img_ns(r["vol"])
         stripped, imgs = extract_images(r["body"])
         lines, opts = split_stem_opts(stripped)
@@ -523,55 +572,106 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
             lines = [clean(stripped)]
         opts, new_ans = reorder_opts(opts, r)
         r["_ans"] = new_ans if new_ans else r["fm"].get("答案", "")
-        rtype = str(r["fm"].get("题型", "")).strip()
-        if rtype == "选择题":                       # 材料题作答在答题区，不补卷内括号
+        rtype = rtype_of(r)
+        if rtype == "选择题":                        # 材料题作答在答题区，不补卷内括号
             slot = find_answer_slot(lines, r.get("括号"))
             if slot >= 0:
                 lines[slot] += "（　　）"
-        if mark_src and mode == "学生" and r["来源括注"]:
-            lines[-1] += f"　{r['来源括注']}"
 
         no_txt = f"{n}．"
         if rtype and rtype != "选择题" and str(r["分值"]).strip().isdigit():
-            no_txt = f"{n}．（{r['分值']}分）"      # 非选择题分值紧随题号（河南惯例）
+            no_txt += f"（{r['分值']}分）"           # 非选择题分值紧随题号（§四）
+        if mark_src and mode == "学生" and r["来源括注"]:
+            no_txt += str(r["来源括注"])              # 来源括注紧跟题号后（§12.1）
 
-        for k, ln in enumerate(lines):
-            if is_img_slot(ln):                     # 图片占位：图片居中 + 图注紧随
-                nm, cap = imgs[int(IMG_SLOT_RE.fullmatch(ln.strip()).group(1))]
-                src = img_dir / nm
-                if src.exists():
-                    p = para(doc, align=WD_ALIGN_PARAGRAPH.CENTER,
-                             before=2, after=0, keep=True, keepn=True)
-                    p.add_run().add_picture(str(src), width=Mm(img_width_mm))
-                for c in cap:
-                    pc = para(doc, size=10.5, line=20, align=WD_ALIGN_PARAGRAPH.CENTER,
-                              after=0, keep=True, keepn=True)
-                    run(pc, c, 10.5)
+        # 连续图片占位合成一组 → 并排（§10.2）；单张 → 居中（§10.1 的靠右环绕待实现）
+        k = 0
+        while k < len(lines):
+            ln = lines[k]
+            if is_img_slot(ln):
+                grp = []
+                while k < len(lines) and is_img_slot(lines[k]):
+                    grp.append(int(IMG_SLOT_RE.fullmatch(lines[k].strip()).group(1)))
+                    k += 1
+                if len(grp) == 1:
+                    nm, cap = imgs[grp[0]]
+                    src = img_dir / nm
+                    if src.exists():
+                        p = para(doc, align=(WD_ALIGN_PARAGRAPH.RIGHT if img_right
+                                             else WD_ALIGN_PARAGRAPH.CENTER),
+                                 before=2, after=0, keep=True, keepn=True)
+                        p.add_run().add_picture(str(src), width=Mm(img_width_mm))
+                    for c in cap:
+                        pc = para(doc, size=10.5, line=20, align=WD_ALIGN_PARAGRAPH.CENTER,
+                                  after=0, keep=True, keepn=True)
+                        run(pc, c, 10.5)
+                else:
+                    ncol = len(grp)
+                    w = (168 - 6 * (ncol - 1)) / ncol / 1.02       # 版心 168mm 均分（mm）
+                    t = doc.add_table(rows=2, cols=ncol)
+                    t.alignment = WD_TABLE_ALIGNMENT.CENTER
+                    for j, gi in enumerate(grp):
+                        nm, cap = imgs[gi]
+                        src = img_dir / nm
+                        c0 = t.cell(0, j)
+                        c0.text = ""
+                        pp = c0.paragraphs[0]
+                        pp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        pp.paragraph_format.line_spacing = Pt(20)
+                        pp.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+                        pp.paragraph_format.space_after = Pt(0)
+                        if src.exists():
+                            pp.add_run().add_picture(str(src), width=Mm(w))
+                        c1 = t.cell(1, j)
+                        c1.text = ""
+                        p1 = c1.paragraphs[0]
+                        p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        p1.paragraph_format.line_spacing = Pt(20)
+                        p1.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+                        p1.paragraph_format.space_after = Pt(0)
+                        setrun(p1.add_run("\n".join(cap)), 10.5)
+                    para(doc, size=10.5, line=10, after=2)
                 continue
-            p = para(doc, left=0, keepn=True)
+            p = para(doc, left=(12 if ln.startswith("材料") else 0),
+                     align=(WD_ALIGN_PARAGRAPH.RIGHT if ln.startswith("——") else None),
+                     keepn=True)
             run(p, (no_txt if k == 0 else "") + ln, 12)
-        if opts:
+            k += 1
+        if opts:                                     # 两项一行、A．全角顿点（§三/§12.4）
             for i in range(0, len(opts) - 1, 2):
                 p = para(doc, before=0, after=0, keepn=(i + 2 < len(opts)))
-                run(p, f"({'ABCD'[i]}) {opts[i]}\u3000\u3000"
-                       f"({'ABCD'[i + 1]}) {opts[i + 1]}", 12)
+                run(p, f"{'ABCD'[i]}．{opts[i]}\u3000\u3000"
+                       f"{'ABCD'[i + 1]}．{opts[i + 1]}", 12)
             if len(opts) % 2:
                 p = para(doc, before=0, after=0)
-                run(p, f"({'ABCD'[len(opts) - 1]}) {opts[-1]}", 12)
+                run(p, f"{'ABCD'[len(opts) - 1]}．{opts[-1]}", 12)
         para(doc, size=12, line=12, after=0)
 
     # 答案卷：分页另起
     if mode == "教师":
         doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
         centered(f"{man.get('卷名', '')}　参考答案", 14, True, before=0, after=6)
+        ch_ans = [(n, r) for n, r in enumerate(recs, 1) if is_choice(r)]
+        if ch_ans:
+            p = para(doc, after=2, keepn=True)
+            run(p, clean(big_title(recs, True).split("（")[0]), 12, True)
+            items = [f"{n}．{r.get('_ans', r['fm'].get('答案', ''))}" for n, r in ch_ans]
+            for i in range(0, len(items), 10):        # 选择题答案连排（§六，每行 10 项）
+                p = para(doc, after=0)
+                run(p, "\u3000".join(items[i:i + 10]), 12)
         for n, r in enumerate(recs, 1):
             fm = r["fm"]
-            p = para(doc, before=2, after=0, keepn=True)
+            jx = re.sub(r"!\[[^\]]*\]\([^)]+\)", "",            # 答案区不带图
+                        str(fm.get("解析", "") or "")).strip()
+            if is_choice(r):                            # 选择题答案已连排：仅补解析
+                if not jx:
+                    continue
+                p = para(doc, size=10.5, line=20, left=12, before=2, after=0)
+                run(p, f"[{n} 解析] {clean(jx)}", 10.5)
+                continue
+            p = para(doc, before=3, after=0, keepn=True)
             run(p, f"{n}．{r.get('_ans', fm.get('答案', ''))}", 12)
-            jx = str(fm.get("解析", "") or "").strip()
             if jx:
-                # 参考答案区不带图：解析里可能内嵌图片引用，先剔除（否则原文语法会漏到卷面）
-                jx = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", jx).strip()
                 p = para(doc, size=10.5, line=20, left=12, after=0)
                 run(p, f"[解析] {clean(jx)}", 10.5)
             if r["角度"]:
@@ -598,6 +698,131 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
 # ============================================================================
 # 七、卷面体检
 # ============================================================================
+
+def render_answer_card(man: dict, recs: list, out: Path,
+                       per_row: int = 10, blanks: int = 2) -> None:
+    """答题卡（校级测试·手阅版，A4 两页）。版式照 2026.09.22 月考答题卡实物：
+
+    · 页面 A4，**左边距 30mm 作装订区**（右 20 / 上 18 / 下 18，页脚距 12.7）
+    · 标题两行：卷名 ＋「答　题　卡」，黑体 14pt 居中
+    · 姓名栏一行（姓名/班级/考场/考号）
+    · 一、选择题（每小题X分，共Y分）＋ **全框线表格**（`题号`／`答案` 两行，每行 per_row 题，
+      首列 16mm、其余 14.4mm、行高 8.5mm）
+    · 二、非选择题（共Z分）＋ 逐题逐小问「21．（1）」各留 blanks 行
+    · 页脚「历史答题卡　第 X 页　共 Y 页」
+    """
+    from docx import Document
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Mm, Pt
+
+    def setrun(rr, size=12, bold=False, cn="宋体"):
+        rr.font.name = "Times New Roman"
+        rr.font.size = Pt(size)
+        rr.font.bold = bold
+        rr._element.rPr.rFonts.set(qn("w:eastAsia"), cn)
+        return rr
+
+    def run(p, text, size=12, bold=False, cn="宋体"):
+        return setrun(p.add_run(text), size, bold, cn)
+
+    def para(doc, size=12, line=24, align=None, after=0, keepn=False):
+        p = doc.add_paragraph()
+        pf = p.paragraph_format
+        pf.line_spacing = Pt(line)
+        pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+        pf.space_before, pf.space_after = Pt(0), Pt(after)
+        if align is not None:
+            p.alignment = align
+        pf.keep_with_next = keepn
+        return p
+
+    doc = Document()
+    s = doc.sections[0]
+    s.page_width, s.page_height = Mm(210), Mm(297)
+    s.left_margin, s.right_margin = Mm(30), Mm(20)
+    s.top_margin = s.bottom_margin = Mm(18)
+    s.footer_distance = Mm(12.7)
+    st = doc.styles["Normal"]
+    st.font.name = "Times New Roman"
+    st.font.size = Pt(12)
+    st.element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+
+    for txt in (man.get("标题") or man.get("卷名") or "", "答　题　卡"):
+        p = para(doc, size=14, align=WD_ALIGN_PARAGRAPH.CENTER, after=2, keepn=True)
+        setrun(p.add_run(txt), 14, True, "黑体")
+    p = para(doc, after=6, keepn=True)
+    setrun(p.add_run("姓名__________　班级__________　考场__________　考号__________"), 12)
+
+    pairs = list(enumerate(recs, 1))
+    ch = [(n, r) for n, r in pairs if is_choice(r)]
+    ot = [(n, r) for n, r in pairs if not is_choice(r)]
+
+    if ch:
+        p = para(doc, after=2, keepn=True)
+        run(p, clean(big_title(recs, True)), 12)
+        for start in range(0, len(ch), per_row):
+            grp = ch[start:start + per_row]
+            t = doc.add_table(rows=2, cols=len(grp) + 1)
+            t.style = "Table Grid"
+            t.alignment = WD_TABLE_ALIGNMENT.CENTER
+            t.autofit = False
+            for j in range(len(t.columns)):           # 首列 16mm、其余 14.4mm（照参考卡）
+                t.columns[j].width = Mm(16) if j == 0 else Mm(14.4)
+            for row in t.rows:
+                row.height = Mm(8.5)
+                for j, cell in enumerate(row.cells):
+                    cell.width = Mm(16) if j == 0 else Mm(14.4)
+                    cell.text = ""
+                    cp = cell.paragraphs[0]
+                    cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    pf = cp.paragraph_format
+                    pf.line_spacing = Pt(20)
+                    pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+                    pf.space_before = pf.space_after = Pt(0)
+            setrun(t.cell(0, 0).paragraphs[0].add_run("题号"), 10.5)
+            setrun(t.cell(1, 0).paragraphs[0].add_run("答案"), 10.5)
+            for j, (qn_, _r) in enumerate(grp, 1):
+                setrun(t.cell(0, j).paragraphs[0].add_run(str(qn_)), 10.5)
+            para(doc, size=12, line=12, after=4)
+
+    if ot:
+        p = para(doc, after=2, keepn=True)
+        run(p, clean(big_title(recs, False)), 12)
+        for n, r in ot:
+            subs = list(dict.fromkeys(
+                re.findall(r"[（(]\s*(\d+)\s*[）)]", r["body"])))
+            if not subs:                             # 无小问（小论文/论述题）：整题留白更多
+                p = para(doc, after=0, keepn=True)
+                run(p, f"{n}．", 12)
+                for _ in range(max(blanks, 6)):
+                    para(doc, after=0)
+                para(doc, size=12, line=12, after=0)
+                continue
+            for si, sub in enumerate(subs):
+                label = f"{n}．" if si == 0 else ""
+                p = para(doc, after=0, keepn=True)
+                run(p, f"{label}（{sub}）", 12)
+                for _ in range(blanks):
+                    para(doc, after=0)
+            para(doc, size=12, line=12, after=0)
+
+    fp = doc.sections[0].footer.paragraphs[0]
+    fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run(fp, "历史答题卡\u3000第 ", 9)
+    for instr in ("PAGE", "NUMPAGES"):
+        fld = OxmlElement("w:fldSimple")
+        fld.set(qn("w:instr"), instr)
+        fp._p.append(fld)
+        if instr == "PAGE":
+            run(fp, " 页\u3000共 ", 9)
+    run(fp, " 页", 9)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(out))
+
 
 def checkup(man: dict, recs: list) -> None:
     from collections import Counter
@@ -834,6 +1059,12 @@ def main():
                     help="学生卷在末行附来源括注（近5年中考真题等）")
     ap.add_argument("--docx", help="另出 Word 卷到该路径")
     ap.add_argument("--图片宽", type=float, default=78.0, help="Word 卷图片宽度 mm（默认 78）")
+    ap.add_argument("--图靠右", action="store_true",
+                    help="单图段落右对齐（《试卷排版规范》§10.1；真正的文字环绕需人工调整）")
+    ap.add_argument("--答题卡", help="另出答题卡到该路径（给了 --docx 时默认同目录同出）")
+    ap.add_argument("--无答题卡", action="store_true", help="给了 --docx 也不出答题卡")
+    ap.add_argument("--答题卡每行", type=int, default=10, help="选择题答题栏每行题数（默认 10）")
+    ap.add_argument("--答题卡行数", type=int, default=2, help="非选择题每小问留白行数（默认 2）")
     ap.add_argument("--体检", action="store_true", help="只打印卷面体检，不导出")
     args = ap.parse_args()
 
@@ -880,8 +1111,15 @@ def main():
 
     if args.docx:
         dx = Path(args.docx)
-        render_docx(man, recs, args.模式, dx, args.标来源, args.图片宽)
+        render_docx(man, recs, args.模式, dx, args.标来源, args.图片宽, args.图靠右)
         print(f"[导出] {dx}（{len(recs)} 题，{args.模式}版 docx）")
+
+    card = Path(args.答题卡) if args.答题卡 else None
+    if card is None and args.docx and not args.无答题卡:
+        card = Path(args.docx).parent / f"{vol_title}_答题卡.docx"
+    if card:
+        render_answer_card(man, recs, card, args.答题卡每行, args.答题卡行数)
+        print(f"[导出] {card}（答题卡，每行 {args.答题卡每行} 题 / 每问留白 {args.答题卡行数} 行）")
     return 0
 
 
