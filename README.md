@@ -93,7 +93,7 @@ python scan_questions.py --卷 <卷名>               # ③ 输出「✓ 无问�
 ```
 
 - **查重命中怎么办**：判为同题 → `dedupe_questions.py --merge <库内主卷.md> --with <本题.md> --apply`（本题不重复入库，`id` 多值记录两卷出处）；判为不同题 → 照常入库
-- JSON 字段规范见 `references/fields.md`（含选择题/材料题/小论文模板与多值示例）
+- JSON 字段规范见 `references/fields.md`（含选择题/材料题/论述题模板与多值示例）
 
 ### 3. 组卷
 

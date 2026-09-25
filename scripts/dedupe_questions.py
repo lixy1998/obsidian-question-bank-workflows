@@ -116,7 +116,7 @@ def jaccard(a: set, b: set) -> float:
 
 
 def sim_threshold(fm: dict, override: float = None) -> float:
-    """相似度阈值：选择题放宽（结构固定、易改字），材料/论述/小论文从严（套话多、易误报）。"""
+    """相似度阈值：选择题放宽（结构固定、易改字），材料/论述从严（套话多、易误报）。"""
     if override is not None:
         return override
     return 0.85 if fm.get("题型") == "选择题" else 0.72

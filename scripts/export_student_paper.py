@@ -48,7 +48,7 @@ import sys
 from pathlib import Path
 
 from qb_schema import (VAULT, is_question_file, as_list, split_frontmatter,
-                       stage_roots, strip_comments)
+                       stage_roots, strip_comments, TYPE_LEGACY_DIRS)
 
 try:
     import yaml
@@ -900,7 +900,7 @@ def render_card_body(doc, man, recs, per_row=10, blanks=0, inline=False):
                 seg.append(p)
                 return p
 
-            if not subs:                             # 无小问（小论文/论述题）：按整题分值留白
+            if not subs:                             # 无小问（论述题等开放题型）：按整题分值留白
                 p = mk()
                 card_run(p, f"{n}．", 12)
                 for _ in range(max(blanks_for(total, blanks), 6)):
@@ -1126,7 +1126,9 @@ def parse_specs(vol_arg: str, only_arg: str) -> list:
 def collect(vol_dir: Path, qtype: str = None, only: list = None):
     files = [p for p in vol_dir.rglob("*.md") if is_question_file(p)]
     if qtype:
-        files = [p for p in files if f"_{qtype}" in p.parent.name]
+        # 目录名兼容（2026-09 题型统一）：论述题的新目录为 {卷名}_论述题，存量仍为 {卷名}_小论文
+        names = [f"_{qtype}"] + [f"_{t}" for t in TYPE_LEGACY_DIRS.get(qtype, ())]
+        files = [p for p in files if any(n in p.parent.name for n in names)]
     if only:
         wanted = {norm_no(x) for x in only}
         files = [p for p in files if norm_no(p.stem) in wanted]

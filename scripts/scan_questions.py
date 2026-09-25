@@ -23,6 +23,7 @@ from collections import Counter
 from pathlib import Path
 
 from qb_schema import (BOOKS, DIFFICULTIES, REQUIRED_FIELDS, TYPES,
+                       TYPE_ALIASES,
                        VAULT, SchemaError, as_list, is_question_file,
                        split_frontmatter, stage_roots, validate_lesson,
                        load_lesson_units, METHOD_PREFIX)
@@ -126,8 +127,10 @@ def scan(roots, only_vol: str = None):
             for b in as_list(fm.get("册别")):
                 if b not in BOOKS:
                     problems.append(f"[册别非法 {b}] {rel}")
-            if fm.get("题型") and fm["题型"] not in TYPES:
-                problems.append(f"[题型非法 {fm['题型']}] {rel}")
+            if fm.get("题型"):
+                t = TYPE_ALIASES.get(fm["题型"], fm["题型"])  # 旧值「小论文」归一后校验
+                if t not in TYPES:
+                    problems.append(f"[题型非法 {fm['题型']}] {rel}")
             if fm.get("难度") and fm["难度"] not in DIFFICULTIES:
                 problems.append(f"[难度非法 {fm['难度']}] {rel}")
             # 课名 vs BOOK_INDEX（按册别映射版本节词表）

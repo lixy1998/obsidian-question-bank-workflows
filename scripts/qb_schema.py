@@ -54,7 +54,12 @@ CATEGORIES = {
 }
 BOOKS = ["7上", "7下", "8上", "8下", "9上", "9下",
          "纲要上", "纲要下", "选必1", "选必2", "选必3"]
-TYPES = ["选择题", "材料解析题", "论述题", "综合探究题", "小论文", "填空题"]
+# 题型受控枚举（2026-09-26 起「小论文」统一为「论述题」，存量已批量迁移）
+TYPES = ["选择题", "材料解析题", "论述题", "综合探究题", "填空题"]
+# 旧值兼容：录入/扫描遇旧值自动归一为论述题，不再作为合法枚举
+TYPE_ALIASES = {"小论文": "论述题"}
+# 目录名兼容：存量题目目录名仍为 {卷名}_小论文（未批量改名），组卷按题型过滤目录时需同时匹配
+TYPE_LEGACY_DIRS = {"论述题": ("小论文",)}
 DIFFICULTIES = ["易", "中", "难"]
 # 来源标签：出处标签自由（卷名/教材课名），类型标签建议受控：
 # 真题 / 教材改编 / 中考改编 / 原创题 / 期末卷 / 模拟卷（可扩展）
@@ -110,6 +115,8 @@ def validate_record(rec: dict) -> None:
     validate_enum("类别", rec["类别"], CATEGORIES[rec["学段"]])
     for b in as_list(rec["册别"]):  # 册别支持多值（跨册别综合题）
         validate_enum("册别", b, BOOKS)
+    if rec["题型"] in TYPE_ALIASES:  # 旧值原地归一（后续建目录/写 YAML 均用新值）
+        rec["题型"] = TYPE_ALIASES[rec["题型"]]
     validate_enum("题型", rec["题型"], TYPES)
     validate_enum("难度", rec["难度"], DIFFICULTIES)
 
