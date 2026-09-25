@@ -925,7 +925,8 @@ def render_answer_card(man: dict, recs: list, out: Path,
                        per_row: int = 10, blanks: int = 2) -> None:
     """答题卡（**独立文件**，校级测试·手阅版，A4 两页）。版式照 2026.09.22 月考答题卡实物：
 
-    · 页面 A4，**左边距 30mm 作装订区**（右 20 / 上 18 / 下 18，页脚距 12.7）
+    · 页面 A4，**装订区在上侧（姓名栏页眉处）**：上边距 22mm（钉子走页眉上方 0~12mm 空白），
+      左右对称 20 / 下 18，页脚距 12.7
     · 标题两行：卷名 ＋「答　题　卡」，黑体 14pt 居中
     · 姓名栏在**首页页眉**（页面最上方，仅第 1 页；正文放会被装订钉盖住第二页作答区）
     · 选择题 **全框线表格**（`题号`／`答案` 两行，每行 per_row 题，首列 16mm、其余 14.4mm、行高 8.5mm）
@@ -943,8 +944,11 @@ def render_answer_card(man: dict, recs: list, out: Path,
     doc = Document()
     s = doc.sections[0]
     s.page_width, s.page_height = Mm(210), Mm(297)
-    s.left_margin, s.right_margin = Mm(30), Mm(20)
-    s.top_margin = s.bottom_margin = Mm(18)
+    # 装订区在**上侧姓名栏处**（2026-09-25 用户定版）：装订钉走页眉上方的 0~12mm 空白区，
+    # 姓名栏 12mm 起、正文 22mm 起——上边距只比常规略大，避免挤掉版面多出一页；
+    # 左侧无需特殊边距，左右对称 20mm
+    s.left_margin, s.right_margin = Mm(20), Mm(20)
+    s.top_margin, s.bottom_margin = Mm(22), Mm(18)
     s.footer_distance = Mm(12.7)
     st = doc.styles["Normal"]
     st.font.name = "Times New Roman"
@@ -953,7 +957,8 @@ def render_answer_card(man: dict, recs: list, out: Path,
 
     # 姓名栏放**首页页眉**（页面最上方）——只第 1 页有，第 2 页起不重复。
     # ⚠ 不能放正文：那样第二页顶部直接是学生作答区，装订时被钉住/盖住（2026-09-25 用户实测反馈）
-    s.header_distance = Mm(10)
+    # 页眉距顶 12mm：装订钉（0~10mm 左右）从姓名栏上方空白穿过，钉不到字
+    s.header_distance = Mm(12)
     s.different_first_page_header_footer = True          # 首页页眉页脚独立
     fh = s.first_page_header
     fh.is_linked_to_previous = False
