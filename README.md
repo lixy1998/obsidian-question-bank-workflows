@@ -52,7 +52,7 @@ Obsidian历史题库搭建与组卷/
     ├── dedupe_questions.py     # 查重 + 一题多卷合并（scan/check/merge/rollback）
     ├── verify_paper_layout.py  # 试卷版式校验器（docx 字号行距 / 卷结构层）
     ├── verify_against_source.py # 录入后回归自检（入库正文 ↔ MinerU 源文本逐题比对，支持单文件多卷）
-    ├── export_student_paper.py # 组卷导出（学生/教师双版）
+    ├── export_student_paper.py # 组卷导出（清单驱动：--清单 组卷清单.yaml → md/Word 卷 + 卷面体检）
     ├── gen_index.py            # 由 BOOK_INDEX 生成六册试题索引
     ├── read_docx.py            # docx 结构化提取（免 MinerU）
     ├── pull_pdf_images.py      # 从官方 PDF 裁剪补图（输出格式守卫：TIFF 自动转 PNG）
@@ -98,16 +98,18 @@ python scan_questions.py --卷 <卷名>               # ③ 输出「✓ 无问�
 ### 3. 组卷
 
 ```bash
-python scan_questions.py --dump               # 全量题目元数据（按条件过滤候选）
-python export_student_paper.py --卷 <来源卷> --only 01,03,05 --模式 学生   # 学生版
-python export_student_paper.py --卷 <来源卷> --only 01,03,05 --模式 教师   # 教师版
-# 跨卷组卷：一条命令拼成一卷（图片按卷分目录，须显式 --输出）
-python export_student_paper.py --卷 "<卷A>,<卷B>" --only "<卷A>:01,03;<卷B>:07" \
-       --模式 学生 --输出 <卷外目录>/期中卷_学生版.md
+python scan_questions.py --dump                      # 全量题目元数据（按条件过滤候选）
+# 组卷：写一份「组卷清单」（有序题目引用，可跨卷），一条命令出卷
+python export_student_paper.py --清单 组卷清单.yaml --体检            # 先看卷面结构
+python export_student_paper.py --清单 组卷清单.yaml --模式 学生 --输出 卷_学生版.md
+python export_student_paper.py --清单 组卷清单.yaml --模式 教师 --docx 卷_教师版.docx
 python verify_paper_layout.py --docx "<成卷.docx>"   # 版式校验（有「✗ 不合规」不得交付）
 ```
 
-> `--only` 只导出用户圈定的题号（**书写顺序即卷面顺序**；题号 `1` 与 `01` 互通）；学生版自动剥离答案与解析。成卷后按 `references/试卷排版规范.md` 定版：正文 **宋体 12pt（小四）+ 固定行距 24pt** 方可满足 GB 40070-2021 的强制下限；页面可选 A4 打印模式或 185×260mm 中考仿真模式。
+> 清单模板见 `templates/组卷清单.yaml`：题目只写 id，可加 `分值/来源/角度/选项序/括号`。
+> **顺序即卷面顺序**，脚本自动重编号；`选项序: [3,1,2,4]` 可重排选项均衡答案分布（答案自动换算）；
+> 每次出卷自动打印**卷面体检**（答案分布/考点覆盖/同课多题告警）。成卷后按 `references/试卷排版规范.md` 定版：
+> 正文 **宋体 12pt（小四）+ 固定行距 24pt** 方可满足 GB 40070-2021 的强制下限；页面可选 A4 打印模式或 185×260mm 中考仿真模式。
 
 ### 4. 研题（考查方向 / 考试范围分析）
 
