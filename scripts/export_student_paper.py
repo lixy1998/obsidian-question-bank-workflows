@@ -754,16 +754,20 @@ def render_answer_card(man: dict, recs: list, out: Path,
         p = para(doc, size=14, align=WD_ALIGN_PARAGRAPH.CENTER, after=2, keepn=True)
         setrun(p.add_run(txt), 14, True, "黑体")
 
-    # 姓名栏放**页眉**（页面最上方、每页都有）——
-    # ⚠ 放正文会被装订钉盖住第二页顶部的作答区（2026-09-25 用户实测反馈）
+    # 姓名栏放**首页页眉**（页面最上方）——只第 1 页有，第 2 页起不重复。
+    # ⚠ 不能放正文：那样第二页顶部直接是学生作答区，装订时被钉住/盖住（2026-09-25 用户实测反馈）
     s.header_distance = Mm(10)
-    hp = s.header.paragraphs[0]
+    s.different_first_page_header_footer = True          # 首页页眉页脚独立
+    fh = s.first_page_header
+    fh.is_linked_to_previous = False
+    hp = fh.paragraphs[0]
     hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
     hpf = hp.paragraph_format
     hpf.line_spacing = Pt(20)
     hpf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
     hpf.space_before = hpf.space_after = Pt(0)
     setrun(hp.add_run("姓名__________　班级__________　考场__________　考号__________"), 12)
+    s.header.is_linked_to_previous = False               # 后续页页眉留空
 
     pairs = list(enumerate(recs, 1))
     ch = [(n, r) for n, r in pairs if is_choice(r)]
@@ -818,16 +822,19 @@ def render_answer_card(man: dict, recs: list, out: Path,
                     para(doc, after=0)
             para(doc, size=12, line=12, after=0)
 
-    fp = doc.sections[0].footer.paragraphs[0]
-    fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run(fp, "历史答题卡\u3000第 ", 9)
-    for instr in ("PAGE", "NUMPAGES"):
-        fld = OxmlElement("w:fldSimple")
-        fld.set(qn("w:instr"), instr)
-        fp._p.append(fld)
-        if instr == "PAGE":
-            run(fp, " 页\u3000共 ", 9)
-    run(fp, " 页", 9)
+    # 页脚：首页与后续页都要页码（启用「首页不同」后两处须分别写）
+    for part in (s.footer, s.first_page_footer):
+        part.is_linked_to_previous = False
+        fp = part.paragraphs[0]
+        fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run(fp, "历史答题卡\u3000第 ", 9)
+        for instr in ("PAGE", "NUMPAGES"):
+            fld = OxmlElement("w:fldSimple")
+            fld.set(qn("w:instr"), instr)
+            fp._p.append(fld)
+            if instr == "PAGE":
+                run(fp, " 页\u3000共 ", 9)
+        run(fp, " 页", 9)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(out))
