@@ -287,12 +287,65 @@ def extract_images(body: str) -> tuple:
     return "\n".join(out), imgs
 
 
+TBL_SLOT_RE = re.compile(r"\ue003TBL(\d+)\ue003")
+HTML_TABLE_RE = re.compile(r"<table>.*?</table>", re.S)
+MD_TABLE_RE = re.compile(r"(?m)(?:^\|.*\|\s*$\n?){2,}")
+
+
+def is_tbl_slot(ln: str) -> bool:
+    """是否为表格占位行（`\\ue003TBLn\\ue003`）。"""
+    return bool(TBL_SLOT_RE.fullmatch(ln.strip()))
+
+
+def _html_table_rows(html: str) -> list:
+    rows = []
+    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
+        cells = [re.sub(r"<[^>]+>", "", c).strip()
+                 for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.S)]
+        if any(cells):
+            rows.append(cells)
+    return rows
+
+
+def _md_table_rows(block: str) -> list:
+    rows = []
+    for line in block.strip().split("\n"):
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if cells and all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c):
+            continue                                  # 分隔行 `|---|---|`
+        rows.append(cells)
+    return rows
+
+
+def extract_tables(body: str) -> tuple:
+    """摘出表格（HTML `<table>` 与 markdown 管道表）→ (占位文本, [表, …])，表 = [[单元格…]…]。
+
+    ⚠ **必须摘出后另行渲染**：这两种语法都不能直接进 Word。原实现是把它们
+    `re.sub` 删掉（只想着别让 md 语法漏到卷面），结果**所有表格题的表格在 Word 卷上凭空消失**——
+    2026-09-25 用户实测发现第 1 题漏表，清查题库共 19 题 HTML 表 ＋ 181 题 md 表受影响。
+    占位符自带换行，保证独立成行、能被逐行渲染识别。
+    """
+    tables = []
+
+    def repl(m, is_html):
+        rows = _html_table_rows(m.group(0)) if is_html else _md_table_rows(m.group(0))
+        if not rows:
+            return ""
+        tables.append(rows)
+        return f"\n\ue003TBL{len(tables) - 1}\ue003\n"
+
+    body = HTML_TABLE_RE.sub(lambda m: repl(m, True), body)
+    body = MD_TABLE_RE.sub(lambda m: repl(m, False), body)
+    return body, tables
+
+
 def split_stem_opts(body: str) -> tuple:
-    """拆分题干与选项 → (题干行列表, 选项文本列表)。"""
+    """拆分题干与选项 → (题干行列表, 选项文本列表)。
+
+    表格与图片已由 extract_tables / extract_images 摘成占位符，此处不再处理。
+    """
     # 摘掉图片行与空表格行（docx 版图片另行插入）
     b = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", body)
-    b = re.sub(r"<table>.*?</table>", "", b, flags=re.S)
-    b = re.sub(r"(?m)^\|.*\|$", "", b)
     m = re.search(r"\((?:A|Ａ)\).*", b, re.S)
     if m:
         stem_src, opt_src = b[:m.start()], m.group(0)
@@ -591,6 +644,7 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
             run(p, clean(mark), 12, True)
         img_dir = out.parent / "images" / img_ns(r["vol"])
         stripped, imgs = extract_images(r["body"])
+        stripped, tbls = extract_tables(stripped)
         lines, opts = split_stem_opts(stripped)
         if not lines:
             lines = [clean(stripped)]
@@ -612,6 +666,27 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
         k = 0
         while k < len(lines):
             ln = lines[k]
+            if is_tbl_slot(ln):                      # 表格：居中、细框线、表头加粗、表内五号
+                rows = tbls[int(TBL_SLOT_RE.fullmatch(ln.strip()).group(1))]
+                ncol = max(len(x) for x in rows)
+                t = doc.add_table(rows=len(rows), cols=ncol)
+                t.style = "Table Grid"
+                t.alignment = WD_TABLE_ALIGNMENT.CENTER
+                for i, row in enumerate(rows):
+                    for j in range(ncol):
+                        cell = t.cell(i, j)
+                        cell.text = ""
+                        cp = cell.paragraphs[0]
+                        cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        pf = cp.paragraph_format
+                        pf.line_spacing = Pt(20)
+                        pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+                        pf.space_before = pf.space_after = Pt(1)
+                        setrun(cp.add_run(row[j] if j < len(row) else ""),
+                               10.5, bold=(i == 0))
+                para(doc, size=10.5, line=10, after=0)
+                k += 1
+                continue
             if is_img_slot(ln):
                 grp = []
                 while k < len(lines) and is_img_slot(lines[k]):
