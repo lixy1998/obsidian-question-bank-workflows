@@ -679,13 +679,42 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
                         cell = t.cell(i, j)
                         cell.text = ""
                         cp = cell.paragraphs[0]
-                        cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        pf = cp.paragraph_format
-                        pf.line_spacing = Pt(20)
-                        pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-                        pf.space_before = pf.space_after = Pt(1)
-                        setrun(cp.add_run(row[j] if j < len(row) else ""),
-                               10.5, bold=(i == 0))
+
+                        def _cell_sty(p):
+                            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            _pf = p.paragraph_format
+                            _pf.line_spacing = Pt(20)
+                            _pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+                            _pf.space_before = _pf.space_after = Pt(1)
+                            return p
+
+                        raw = row[j] if j < len(row) else ""
+                        # ① 单元格内 md 图片 → 实际图片；② `<br>` → 单元格内换行
+                        #    （2026-09-26 修：原实现把单元格内容整段当纯文本，表格内图片漏成
+                        #     `![](images/…)` 字面量、`<br>` 也原样显示 → 多图题在 Word 卷上失效）
+                        cell_imgs = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", raw)
+                        txt = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", raw).replace("<br>", "\n").strip()
+                        _cell_sty(cp)
+                        cell_w = (168 - 6 * (ncol - 1)) / ncol - 6
+                        per_w = max(cell_w / max(len(cell_imgs), 1) - 2, 12) if cell_imgs else 0
+                        first_p = True
+                        for src_rel in cell_imgs:
+                            rel = src_rel.split("images/", 1)[-1] if "images/" in src_rel else src_rel
+                            src = img_dir / rel
+                            if not src.exists():
+                                continue
+                            p = cp if first_p else _cell_sty(cell.add_paragraph())
+                            first_p = False
+                            try:
+                                p.add_run().add_picture(str(src), width=Mm(min(per_w, img_width_mm)))
+                            except Exception:
+                                continue
+                        for li, tk in enumerate(txt.split("\n")):
+                            if not tk.strip():
+                                continue
+                            p = cp if (first_p and li == 0) else _cell_sty(cell.add_paragraph())
+                            first_p = False
+                            setrun(p.add_run(tk), 10.5, bold=(i == 0))
                 para(doc, size=10.5, line=10, after=0)
                 k += 1
                 continue
