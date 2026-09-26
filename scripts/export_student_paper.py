@@ -373,13 +373,17 @@ def find_answer_slot(lines: list, mode: str = None) -> int:
 
     启发的顺序：清单显式「括号: 首行|末行|无」→ 否则找**短且以设问词结尾**的行
     （卡片式/条文式材料的设问常在首行，而非末行）→ 兜底最后一个文本行。
-    ⚠ **图片占位行不参与判定**，否则括号会补到图片的位置上（实测踩坑）。
+    ⚠ **图片占位行与表格占位行都不参与判定**：
+      · 图片占位行不排除 → 括号补到图片位置上（实测踩坑）；
+      · 表格占位行不排除 → 题干末行是表格时，括号被塞进表格内（2026-09-26 用户实测：
+        多图题题干末行为表格，卷面出现「| 图注 |（　　）」）→ 现按「表格前最后一个文本行」补。
     """
     if any("（　　）" in l for l in lines):
         return -1
     if mode == "无":
         return -2
-    rows = [i for i, l in enumerate(lines) if not is_img_slot(l)]
+    rows = [i for i, l in enumerate(lines)
+            if not is_img_slot(l) and not is_tbl_slot(l)]
     if not rows:
         return -1
     if mode == "首行":
@@ -572,7 +576,7 @@ def render_md(man: dict, recs: list, mode: str, mark_src: bool) -> str:
 # ============================================================================
 
 def render_docx(man: dict, recs: list, mode: str, out: Path,
-                mark_src: bool, img_width_mm: float = 78.0,
+                mark_src: bool, img_width_mm: float = 0.0,
                 img_right: bool = False,
                 card_inline: bool = False, card_per_row: int = 10,
                 card_blanks: int = 0) -> None:
@@ -604,6 +608,191 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
 
     def run(p, text, size=12, bold=False, cn="宋体"):
         return setrun(p.add_run(text), size, bold, cn)
+
+    # ---- 图片：文字环绕-上下型环绕（2026-09-26 用户裁定） ----------------------
+    # 背景：python-docx 的 add_picture 只出**嵌入型**（wp:inline）。嵌入型图片随段落行距走，
+    #       而本卷所有段落行距都是「固定值」（§一），于是图片被行距裁成一条横带
+    #       （实测：单元格 20pt 行距把三张文物图全压成横条，用户截图即为该现象）。
+    #       改用**上下型环绕**后图片浮动于文字层之外、不受行距约束，文字只在图上下排布，
+    #       这同时是「宽幅单图偏小」的根源——浮动图不再需要为嵌入行留白，可按版心放宽。
+    from docx.oxml import OxmlElement
+
+    VW_MM = 168.0            # 版心宽（A4 210 − 左右各 21mm）
+    IMG_GAP = 6.0            # 并排图之间的水平间距（规范 §10.2：5~8mm）
+    MAX_W = 155.0            # 单图可铺的最大宽度（版心留 13mm 余量）
+    BASE_W = 78.0            # 单图基准宽（非宽幅图，沿旧默认值）
+    _rel_h = [2]             # relativeHeight 递增，避免多图 z 序相同
+
+    def _ar(src) -> float:
+        """图片宽高比（宽/高）；读不到时按 1.5 估算。"""
+        try:
+            from PIL import Image
+            with Image.open(src) as im:
+                return (im.width / im.height) if im.height else 1.5
+        except Exception:
+            return 1.5
+
+    def _fit(src, max_w: float, max_h: float) -> float:
+        """在 max_w × max_h 的框内等比装箱，返回可用宽度（mm）。"""
+        ar = _ar(src)
+        w = float(max_w)
+        if ar > 0 and w / ar > max_h:
+            w = max_h * ar
+        return max(10.0, w)
+
+    def _auto_single_w(src, max_h: float) -> float:
+        """单图宽度：**宽幅图铺到 MAX_W**，普通/高窄图回落到基准宽（并按高度上限收缩）。
+
+        依据规范 §10.1（单图约版心 1/3–1/2）与用户 2026-09-26 裁定：
+        嵌入型改为上下型环绕后，宽幅图（年代尺、箭头示意、时间轴，宽高比 ≥2.6）
+        不再受"嵌入行"限制，可铺满版心；普通方图保持基准宽，避免占版过度。
+        """
+        if img_width_mm:                        # 命令行显式给了固定宽 → 一律照此
+            return _fit(src, img_width_mm, max_h)
+        ar = _ar(src)
+        w = min(MAX_W, max_h * ar)
+        if ar < 2.6:
+            w = min(w, BASE_W)
+        return max(10.0, w)
+
+    def add_float_pic(p, src, w_mm: float, x_mm=None, y_mm=None, right: bool = False):
+        """在段落 p 内插一张「文字环绕-上下型环绕」浮动图。
+
+        x_mm / y_mm：相对**正文左边界 / 锚点段落顶**的偏移；
+        x=None → 按 right 决定居右/居中；y=None → 贴锚点段落顶。
+        实现：把 `wp:inline` 整段改写成 `wp:anchor` + `wp:wrapTopAndBottom`
+        （python-docx 无内置 API；anchor 子元素顺序受 schema 约束，不可乱序）。
+        """
+        r = p.add_run()
+        r.add_picture(str(src), width=Mm(w_mm))
+        drawing = r._element.find(qn("w:drawing"))
+        if drawing is None:
+            return
+        inline = drawing.find(qn("wp:inline"))
+        if inline is None:                          # 已是 anchor（异常路径）→ 原样保留
+            return
+        extent = inline.find(qn("wp:extent"))
+        docpr = inline.find(qn("wp:docPr"))
+        cnv = inline.find(qn("wp:cNvGraphicFramePr"))
+        graphic = inline.find(qn("a:graphic"))
+
+        _rel_h[0] += 1
+        an = OxmlElement("wp:anchor")
+        for k, v in (("distT", "0"), ("distB", "0"), ("distL", "0"), ("distR", "0"),
+                     ("simplePos", "0"), ("relativeHeight", str(_rel_h[0])),
+                     ("behindDoc", "0"), ("locked", "0"),
+                     ("layoutInCell", "1"), ("allowOverlap", "1")):
+            an.set(k, v)
+
+        sp = OxmlElement("wp:simplePos")
+        sp.set("x", "0")
+        sp.set("y", "0")
+        an.append(sp)                                   # ① simplePos
+
+        ph = OxmlElement("wp:positionH")                # ② positionH
+        ph.set("relativeFrom", "margin")
+        if x_mm is None:
+            al = OxmlElement("wp:align")
+            al.text = "right" if right else "center"
+            ph.append(al)
+        else:
+            off = OxmlElement("wp:posOffset")
+            off.text = str(int(round(x_mm * 36000)))    # 1mm = 36000 EMU
+            ph.append(off)
+        an.append(ph)
+
+        pv = OxmlElement("wp:positionV")                # ③ positionV
+        pv.set("relativeFrom", "paragraph")
+        if y_mm is None:
+            al2 = OxmlElement("wp:align")
+            al2.text = "top"
+            pv.append(al2)
+        else:
+            off2 = OxmlElement("wp:posOffset")
+            off2.text = str(int(round(y_mm * 36000)))
+            pv.append(off2)
+        an.append(pv)
+
+        an.append(extent)                               # ④ extent（复用原节点）
+        ee = OxmlElement("wp:effectExtent")             # ⑤ effectExtent
+        for k in ("l", "t", "r", "b"):
+            ee.set(k, "0")
+        an.append(ee)
+        an.append(OxmlElement("wp:wrapTopAndBottom"))    # ⑥ 环绕方式：上下型
+        an.append(docpr)                                # ⑦ docPr
+        if cnv is not None:
+            an.append(cnv)                              # ⑧ cNvGraphicFramePr
+        an.append(graphic)                              # ⑨ graphic
+
+        drawing.remove(inline)
+        drawing.append(an)
+
+    def pic_block(items: list, max_h: float = 105.0):
+        """一段内并排若干「图列」+ 图注行（图注列与图列对齐）。
+
+        items = [([图片路径…], [图注…]), …] —— 一个图列可含多张图（题库里同格多图），
+        列内**横向均分**（列宽恒定，保证列对齐；与原卷「格内多小图并排」一致）。
+        n == 1 且单图时居中、图注为普通居中段落。
+        锚点段落行距取极小值：图片自锚点顶向下浮动，文字被排到图下（上下型环绕语义）。
+        """
+        n = len(items)
+        keep = para(doc, size=1, line=1, after=0, keep=True, keepn=True)
+        col_w = (VW_MM - IMG_GAP * (n - 1)) / n
+        for j, (srcs, _caps) in enumerate(items):
+            m = len(srcs)
+            if n == 1 and m == 1:
+                add_float_pic(keep, srcs[0], _auto_single_w(srcs[0], max_h), right=img_right)
+                continue
+            in_gap = 2.0 if m > 1 else 0.0
+            iw = (col_w - in_gap * (m - 1)) / m
+            for t, src in enumerate(srcs):
+                w = _fit(src, iw, max_h)
+                add_float_pic(keep, src, w,
+                              x_mm=j * (col_w + IMG_GAP) + t * (iw + in_gap) + (iw - w) / 2.0)
+        caps = [c for _s, c in items]
+        if n == 1:
+            for c in caps[0]:
+                pc = para(doc, size=10.5, line=20, align=WD_ALIGN_PARAGRAPH.CENTER,
+                          after=0, keep=True, keepn=True)
+                run(pc, c, 10.5)
+            return
+        if not any(caps):
+            return
+        t = doc.add_table(rows=1, cols=n)               # 默认 Table Normal：无框线
+        t.autofit = False
+        tl = OxmlElement("w:tblLayout")
+        tl.set(qn("w:type"), "fixed")
+        t._tbl.tblPr.append(tl)
+        for j in range(n):
+            c = t.cell(0, j)
+            c.text = ""
+            c.width = Mm(col_w)
+            txt = "\n".join(caps[j]) if j < len(caps) else ""
+            for li, tk in enumerate(txt.split("\n")):
+                cp = c.paragraphs[0] if li == 0 else c.add_paragraph()
+                cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                cp.paragraph_format.line_spacing = Pt(20)
+                cp.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+                cp.paragraph_format.space_before = cp.paragraph_format.space_after = Pt(0)
+                setrun(cp.add_run(tk), 10.5)
+
+    CELL_IMG_ONLY = re.compile(r"(?:!\[[^\]]*\]\([^)]+\)\s*)+")
+
+    def pic_table_groups(rows: list):
+        """是否「题库多图排版表」→ 返回 [(图片行, 图注行), …]；否则返回 None。
+
+        形态：偶数行、成对出现，「图片行 + 图注行」为一组（一组可 3 图/4 图/6 图…）。
+        6 图题在题库里是「图/注/图/注」四行表 → 视为两组，逐组渲染为并排浮动图行。
+        """
+        if len(rows) < 2 or len(rows) % 2:
+            return None
+        groups = []
+        for i in range(0, len(rows), 2):
+            head = [c.strip() for c in rows[i] if c.strip()]
+            if not head or not all(CELL_IMG_ONLY.fullmatch(c) for c in head):
+                return None
+            groups.append((rows[i], rows[i + 1]))
+        return groups
 
     doc = Document()
     s = doc.sections[0]
@@ -670,6 +859,27 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
             ln = lines[k]
             if is_tbl_slot(ln):                      # 表格：居中、细框线、表头加粗、表内五号
                 rows = tbls[int(TBL_SLOT_RE.fullmatch(ln.strip()).group(1))]
+                grps = pic_table_groups(rows)        # 题库多图排版表 → 浮动上下型并排
+                if grps:
+                    for head_row, cap_row in grps:
+                        items = []
+                        for j in range(len(head_row)):
+                            srcs = []
+                            for r1 in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", head_row[j]):
+                                s = img_dir / r1.split("images/", 1)[-1]
+                                if s.exists():
+                                    srcs.append(s)
+                            if not srcs:
+                                continue
+                            cap = ([cap_row[j].strip()]
+                                   if j < len(cap_row) and cap_row[j].strip() else [])
+                            items.append((srcs, cap))
+                        if items:
+                            pic_block(items)
+                    para(doc, size=10.5, line=10, after=2)
+                    k += 1
+                    continue
+
                 ncol = max(len(x) for x in rows)
                 t = doc.add_table(rows=len(rows), cols=ncol)
                 t.style = "Table Grid"
@@ -680,11 +890,15 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
                         cell.text = ""
                         cp = cell.paragraphs[0]
 
-                        def _cell_sty(p):
+                        def _cell_sty(p, pic=False):
                             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                             _pf = p.paragraph_format
-                            _pf.line_spacing = Pt(20)
-                            _pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+                            if pic:
+                                # ⚠ 含图段落禁用「固定值」行距：嵌入型图片会被行距裁成一条横带
+                                _pf.line_spacing_rule = WD_LINE_SPACING.SINGLE
+                            else:
+                                _pf.line_spacing = Pt(20)
+                                _pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
                             _pf.space_before = _pf.space_after = Pt(1)
                             return p
 
@@ -694,7 +908,7 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
                         #     `![](images/…)` 字面量、`<br>` 也原样显示 → 多图题在 Word 卷上失效）
                         cell_imgs = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", raw)
                         txt = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", raw).replace("<br>", "\n").strip()
-                        _cell_sty(cp)
+                        _cell_sty(cp, pic=bool(cell_imgs))
                         cell_w = (168 - 6 * (ncol - 1)) / ncol - 6
                         per_w = max(cell_w / max(len(cell_imgs), 1) - 2, 12) if cell_imgs else 0
                         first_p = True
@@ -703,10 +917,12 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
                             src = img_dir / rel
                             if not src.exists():
                                 continue
-                            p = cp if first_p else _cell_sty(cell.add_paragraph())
+                            p = cp if first_p else _cell_sty(cell.add_paragraph(), pic=True)
                             first_p = False
                             try:
-                                p.add_run().add_picture(str(src), width=Mm(min(per_w, img_width_mm)))
+                                p.add_run().add_picture(
+                                    str(src),
+                                    width=Mm(min(per_w, img_width_mm) if img_width_mm else per_w))
                             except Exception:
                                 continue
                         for li, tk in enumerate(txt.split("\n")):
@@ -723,43 +939,14 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
                 while k < len(lines) and is_img_slot(lines[k]):
                     grp.append(int(IMG_SLOT_RE.fullmatch(lines[k].strip()).group(1)))
                     k += 1
-                if len(grp) == 1:
-                    nm, cap = imgs[grp[0]]
+                items = []
+                for gi in grp:
+                    nm, cap = imgs[gi]
                     src = img_dir / nm
                     if src.exists():
-                        p = para(doc, align=(WD_ALIGN_PARAGRAPH.RIGHT if img_right
-                                             else WD_ALIGN_PARAGRAPH.CENTER),
-                                 before=2, after=0, keep=True, keepn=True)
-                        p.add_run().add_picture(str(src), width=Mm(img_width_mm))
-                    for c in cap:
-                        pc = para(doc, size=10.5, line=20, align=WD_ALIGN_PARAGRAPH.CENTER,
-                                  after=0, keep=True, keepn=True)
-                        run(pc, c, 10.5)
-                else:
-                    ncol = len(grp)
-                    w = (168 - 6 * (ncol - 1)) / ncol / 1.02       # 版心 168mm 均分（mm）
-                    t = doc.add_table(rows=2, cols=ncol)
-                    t.alignment = WD_TABLE_ALIGNMENT.CENTER
-                    for j, gi in enumerate(grp):
-                        nm, cap = imgs[gi]
-                        src = img_dir / nm
-                        c0 = t.cell(0, j)
-                        c0.text = ""
-                        pp = c0.paragraphs[0]
-                        pp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        pp.paragraph_format.line_spacing = Pt(20)
-                        pp.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-                        pp.paragraph_format.space_after = Pt(0)
-                        if src.exists():
-                            pp.add_run().add_picture(str(src), width=Mm(w))
-                        c1 = t.cell(1, j)
-                        c1.text = ""
-                        p1 = c1.paragraphs[0]
-                        p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        p1.paragraph_format.line_spacing = Pt(20)
-                        p1.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-                        p1.paragraph_format.space_after = Pt(0)
-                        setrun(p1.add_run("\n".join(cap)), 10.5)
+                        items.append(([src], cap))
+                if items:
+                    pic_block(items)
                     para(doc, size=10.5, line=10, after=2)
                 continue
             p = para(doc, left=(12 if ln.startswith("材料") else 0),
@@ -1256,7 +1443,8 @@ def main():
     ap.add_argument("--标来源", action="store_true",
                     help="学生卷在末行附来源括注（近5年中考真题等）")
     ap.add_argument("--docx", help="另出 Word 卷到该路径")
-    ap.add_argument("--图片宽", type=float, default=78.0, help="Word 卷图片宽度 mm（默认 78）")
+    ap.add_argument("--图片宽", type=float, default=0.0,
+                    help="Word 卷单图最大宽度 mm（默认 0＝自动：按图片宽高比在版心 155mm×105mm 内装箱）")
     ap.add_argument("--图靠右", action="store_true",
                     help="单图段落右对齐（《试卷排版规范》§10.1；真正的文字环绕需人工调整）")
     ap.add_argument("--答题卡", help="另出答题卡到该路径（给了 --docx 时默认同目录同出）")
