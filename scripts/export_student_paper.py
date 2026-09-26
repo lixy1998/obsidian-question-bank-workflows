@@ -621,6 +621,9 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
     IMG_GAP = 6.0            # 并排图之间的水平间距（规范 §10.2：5~8mm）
     MAX_W = 155.0            # 单图可铺的最大宽度（版心留 13mm 余量）
     BASE_W = 78.0            # 单图基准宽（非宽幅图，沿旧默认值）
+    RIGHT_W = 55.0           # §10.1 靠右环绕的单图宽（约版心 1/3）
+    RIGHT_MAX_W = 80.0       # 靠右环绕时宽幅图的上限（再宽就没有"绕左"空间了）
+    PT_MM = 2.8346           # 1mm ≈ 2.8346pt（图文混排的垂直/水平补偿换算）
     _rel_h = [2]             # relativeHeight 递增，避免多图 z 序相同
 
     def _ar(src) -> float:
@@ -655,11 +658,26 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
             w = min(w, BASE_W)
         return max(10.0, w)
 
-    def add_float_pic(p, src, w_mm: float, x_mm=None, y_mm=None, right: bool = False):
-        """在段落 p 内插一张「文字环绕-上下型环绕」浮动图。
+    def _auto_right_w(src, max_h: float = 60.0) -> float:
+        """§10.1 靠右环绕的单图宽：正文绕左，故图不能占满版心。
+
+        普通图取 RIGHT_W（≈版心 1/3）；宽幅图放宽到 RIGHT_MAX_W；高窄图按高度上限反算。
+        `--图片宽` 显式给值则一律照此。
+        """
+        if img_width_mm:
+            return _fit(src, img_width_mm, max_h)
+        ar = _ar(src)
+        w = min(RIGHT_MAX_W, max_h * ar) if ar >= 2.6 else min(RIGHT_W, max_h * ar)
+        return max(20.0, w)
+
+    def add_float_pic(p, src, w_mm: float, x_mm=None, y_mm=None, right: bool = False,
+                      wrap: str = "topAndBottom"):
+        """在段落 p 内插一张浮动图。
 
         x_mm / y_mm：相对**正文左边界 / 锚点段落顶**的偏移；
         x=None → 按 right 决定居右/居中；y=None → 贴锚点段落顶。
+        wrap：`topAndBottom`＝上下型环绕（图文上下排，本 skill 默认）；
+              `square`＝四周型环绕（文字可绕图侧，用于 §10.1「图靠右、题干绕左」）。
         实现：把 `wp:inline` 整段改写成 `wp:anchor` + `wp:wrapTopAndBottom`
         （python-docx 无内置 API；anchor 子元素顺序受 schema 约束，不可乱序）。
         """
@@ -718,7 +736,14 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
         for k in ("l", "t", "r", "b"):
             ee.set(k, "0")
         an.append(ee)
-        an.append(OxmlElement("wp:wrapTopAndBottom"))    # ⑥ 环绕方式：上下型
+        if wrap == "square":                            # ⑥ 环绕方式
+            ws = OxmlElement("wp:wrapSquare")           #    四周型：文字可绕图两侧
+            ws.set("wrapText", "bothSides")
+            an.append(ws)
+            for k in ("distL", "distR"):                #    与文字留 2mm 间距，避免贴字
+                an.set(k, str(int(2 * 36000)))
+        else:
+            an.append(OxmlElement("wp:wrapTopAndBottom"))   # 上下型：文字只在图上下
         an.append(docpr)                                # ⑦ docPr
         if cnv is not None:
             an.append(cnv)                              # ⑧ cNvGraphicFramePr
@@ -853,7 +878,11 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
         if mark_src and mode == "学生" and r["来源括注"]:
             no_txt += str(r["来源括注"])              # 来源括注紧跟题号后（§12.1）
 
-        # 连续图片占位合成一组 → 并排（§10.2）；单张 → 居中（§10.1 的靠右环绕待实现）
+        # 连续图片占位合成一组 → 并排（§10.2）；单张默认**上下型环绕＋居中**；
+        # `--图靠右` 时改 §10.1 式样：**四周型环绕 ＋ 靠右**，图锚在题干首段、文字绕左
+        stem_first = None                            # 题干首段（靠右环绕的锚点）
+        stem_paras = 0                               # 题干已排段数（图注垂直补偿用）
+        right_pic = None                             # 靠右环绕的待补图注：(源, 图注, 宽, 图高pt)
         k = 0
         while k < len(lines):
             ln = lines[k]
@@ -945,7 +974,15 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
                     src = img_dir / nm
                     if src.exists():
                         items.append(([src], cap))
-                if items:
+                if len(grp) == 1 and img_right and stem_first is not None and items:
+                    # §10.1 图靠右、题干绕左：图锚在题干首段（四周型环绕），题干与选项都绕在
+                    # 图左侧；图注（或等高空段）要落图正下方，故**推迟到选项之后再插**
+                    # （见下方 right_pic 处理；2026-09-26 实测：插在题干后会把选项一并顶到图下）。
+                    src, cap = items[0][0][0], items[0][1]
+                    w = _auto_right_w(src)
+                    add_float_pic(stem_first, src, w, right=True, wrap="square")
+                    right_pic = (src, cap, w, (w / max(_ar(src), 0.05)) * PT_MM)
+                elif items:
                     pic_block(items)
                     para(doc, size=10.5, line=10, after=2)
                 continue
@@ -953,15 +990,37 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
                      align=(WD_ALIGN_PARAGRAPH.RIGHT if ln.startswith("——") else None),
                      keepn=True)
             run(p, (no_txt if k == 0 else "") + ln, 12)
+            if stem_first is None:
+                stem_first = p
+            stem_paras += 1
             k += 1
+        opt_lines = 0
         if opts:                                     # 两项一行、A．全角顿点（§三/§12.4）
             for i in range(0, len(opts) - 1, 2):
                 p = para(doc, before=0, after=0, keepn=(i + 2 < len(opts)))
                 run(p, f"{'ABCD'[i]}．{opts[i]}\u3000\u3000"
                        f"{'ABCD'[i + 1]}．{opts[i + 1]}", 12)
+                opt_lines += 1
             if len(opts) % 2:
                 p = para(doc, before=0, after=0)
                 run(p, f"{'ABCD'[len(opts) - 1]}．{opts[-1]}", 12)
+                opt_lines += 1
+
+        # §10.1 靠右环绕收尾：图注（无图注则等高空段）补在**选项之后**——
+        # 题干与选项同绕图左，图注才落图正下方；补偿量＝图高 −「题干＋选项」自然高度。
+        # ⚠ 缺此步则图不占文档流，下一题会与本题图片垂直重叠（2026-09-26 实测）。
+        if right_pic is not None:
+            _src_r, cap_r, w_r, h_pt = right_pic
+            need = max(0.0, h_pt + 4.0 - (stem_paras + opt_lines) * 24.0)
+            left_pt = (VW_MM - w_r) * PT_MM
+            if cap_r:
+                for ci, c in enumerate(cap_r):
+                    pc = para(doc, size=10.5, line=20, align=WD_ALIGN_PARAGRAPH.CENTER,
+                              before=(need if ci == 0 else 0), left=left_pt,
+                              keep=True, keepn=True)
+                    run(pc, c, 10.5)
+            elif need > 0:
+                para(doc, size=1, line=max(2.0, need), after=0)
         para(doc, size=12, line=12, after=0)
 
     # 答案卷：分页另起
@@ -1446,7 +1505,8 @@ def main():
     ap.add_argument("--图片宽", type=float, default=0.0,
                     help="Word 卷单图最大宽度 mm（默认 0＝自动：按图片宽高比在版心 155mm×105mm 内装箱）")
     ap.add_argument("--图靠右", action="store_true",
-                    help="单图段落右对齐（《试卷排版规范》§10.1；真正的文字环绕需人工调整）")
+                    help="单图改《试卷排版规范》§10.1 式样：**四周型环绕＋图靠右、题干绕左**"
+                         "（图锚在题干首段，图注落图下居中）；不给则上下型环绕＋居中")
     ap.add_argument("--答题卡", help="另出答题卡到该路径（给了 --docx 时默认同目录同出）")
     ap.add_argument("--无答题卡", action="store_true", help="给了 --docx 也不出答题卡")
     ap.add_argument("--答题卡每行", type=int, default=10, help="选择题答题栏每行题数（默认 10）")
