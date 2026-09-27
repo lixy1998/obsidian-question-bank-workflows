@@ -6,8 +6,9 @@
 ① 格式：Obsidian（Chromium 渲染）**不显示 TIFF/TIF/EMF/WMF**，题库里存了就是一排破图。
   源头已在 read_docx.py / pull_pdf_images.py 加格式守卫，本脚本处理**存量**图片。
 
-② 引用形态：export_student_paper.py 的 IMG_REF_RE 只认 `![](images/无空格文件名)`，
-  以下形态出卷时**全部丢图**（2026-09-26 七上月考实测第 5 题丢图根因）：
+② 引用形态：export_student_paper.py 自 v1.22.0 起 IMG 识别已多形态兼容（出卷不再丢图），
+  但库内非标准引用仍影响渲染一致性与协作卫生，本脚本统一规范化为 `![](images/<无空格文件名>)`。
+  五类非标准引用（v1.21.0 曾致出卷静默丢图，2026-09-26 七上月考实测第 5 题根因）：
     wk-bare   ![[Pasted image x.png]]         无路径 wikilink（Obsidian 粘贴默认形态）
     wk-path   ![[某目录/x.jpg|314]]           带路径/带尺寸 wikilink
     md-alt    ![327](images/x.jpg)            alt 非空
