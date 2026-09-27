@@ -4,7 +4,7 @@
 
 为什么需要（2026-09-21 定案）
 ----------------------------
-题目被「一题多卷」合并后，别名题文件移入 `{vault}/_归档/重复题/`，它在原卷目录
+题目被「一题多卷」合并后，别名题文件移入 `{vault}/.Z-Archive/重复题/`，它在原卷目录
 下的路径随之失效。此前引用过该题的 `3-试题研究/` 报告会**静默断链**：
 
   · Obsidian 不报错，只把链接显示成「未创建的笔记」，纯靠肉眼很难发现；
@@ -39,9 +39,9 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from qb_schema import TYPES, VAULT, is_question_file, split_frontmatter  # noqa: E402
+from qb_schema import ARCHIVE_ROOT, TYPES, VAULT, is_question_file, split_frontmatter  # noqa: E402
 
-ARCHIVE_DIR = "_归档"
+ARCHIVE_DIR = ARCHIVE_ROOT          # 单一来源：qb_schema（点开头＝Obsidian 不索引该目录）
 NOTE_DIR_DEFAULT = "3-试题研究"
 LOG_DIR = ".linkfix"
 
@@ -85,7 +85,7 @@ def write_text_raw(p: Path, text: str) -> None:
 
 # ---------------------------------------------------------------- 索引
 def iter_question_files():
-    """全库题目文件：在库（初中-*/高中-*）＋ 归档区（_归档/**）。"""
+    """全库题目文件：在库（初中-*/高中-*）＋ 归档区（.Z-Archive/**，脚本自己扫盘，不依赖 Obsidian 索引）。"""
     vault = Path(VAULT)
     out = []
     for root in sorted(p for p in vault.iterdir() if p.is_dir() and re.match(r"^(初中|高中)-", p.name)):
@@ -188,7 +188,7 @@ def classify(path_part: str, id2path: dict, rel2ids: dict, alias_to_theme: bool)
 
     kind ∈ {OK, ARCHIVED, FIX, BROKEN}
       OK        目标存在且在库，无需处理
-      ARCHIVED  目标存在但位于 _归档/，应改指主卷
+      ARCHIVED  目标存在但位于 .Z-Archive/（Obsidian 不索引，实际已表现为断链），应改指主卷
       FIX       目标不存在，可由 id 索引定位到主卷
       BROKEN    目标不存在且无法定位（需人工查）
     """

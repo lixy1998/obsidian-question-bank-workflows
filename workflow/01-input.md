@@ -100,7 +100,7 @@ python dedupe_questions.py --check <卷_选择题.json>     # 写 JSON 后、gen
 
 **定期全库查重**：批量录入后跑 `--scan` 出《疑似重复清单》→ 裁定 → `--merge`。
 
-**安全线**：别名题移入 `{vault}/_归档/重复题/`（不删除）；日志 `{vault}/.dedupe/YYYY-MM-DD.json` 支持 `--rollback`；别名卷留 `_重复题清单.md` 供还原。
+**安全线**：别名题移入 `{vault}/.Z-Archive/重复题/`（不删除）；日志 `{vault}/.dedupe/YYYY-MM-DD.json` 支持 `--rollback`；别名卷留 `_重复题清单.md` 供还原。
 
 **合并后必看自检**：脚本写盘后自动解析主题 frontmatter，输出 `[自检] 主题 frontmatter 解析正常：id=[…]`；若出现 `❌ 主题 frontmatter 校验失败`（此时别名**尚未归档**），手工修正该文件后重试即可，不会留下半成品。
 **批量合并**：逐对跑 `--merge --apply`，每对确认自检行；全部完成后 `scan_questions.py`（应「✓ 无问题」）+ `--list-merged`（核对 id 多值）复核。
@@ -114,7 +114,7 @@ python scripts/check_note_links.py --fix --apply   # 执行（记日志 {vault}/
 python scripts/check_note_links.py --cite <题目id>  # 合并前预检：谁引用了这道题
 ```
 
-- 同时检出**指向 `_归档/` 的引用**（文件在但位置不合规）一并改指主卷；不可定位者单独列出待人工确认，**不猜测**
+- 同时检出**指向 `.Z-Archive/` 的引用**（文件在但位置不合规）一并改指主卷；不可定位者单独列出待人工确认，**不猜测**
 - 别名默认**保留原样**（只换路径）；改用主卷 id 作别名加 `--alias theme`；表格内 `\|` 转义风格原样保持
 - **批量录入后偶发**：源卷被陆续录入时，早先报告引用的题可能被后来的卷撞题合并 → 定期（如每批录入收尾）跑一次无参巡检即可
 

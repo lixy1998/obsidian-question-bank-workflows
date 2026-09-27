@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-09-27 · 归档区改名 `.Z-Archive`（题库侧）＋ 脚本与文档同步
+
+**背景**：题库归档目录 `{vault}/_归档/` 由用户改名为 `{vault}/.Z-Archive/`（`重复题/` 子结构不变），使归档件在 Obsidian 面板/搜索/图谱中默认不显示。skill 侧路径与遍历逻辑全部随之同步。
+
+**改动**：
+
+1. `scripts/qb_schema.py`：`ARCHIVE_ROOT` `"_归档"` → `".Z-Archive"`；新增 `LEGACY_ARCHIVE_ROOTS = ("_归档",)`
+2. `scripts/check_note_links.py`：自持常量 `ARCHIVE_DIR` 改为**从 `qb_schema` 导入**（原为独立字面量——两处维护必然漂移，本次即因此漏检）
+3. `scripts/dedupe_questions.py`：新增 `resolve_archived()`，`--rollback` 时把旧日志里的 `_归档` 根名映射到现行 `ARCHIVE_ROOT`。⚠ 改名后旧日志按原路径找不到文件，而回滚代码 `if src.exists():` **无 else 分支 → 静默跳过还原**（实测 5 份日志共 19 条 `archived_to` 全部受影响）
+4. 全库遍历脚本统一跳过隐藏目录：`fix_arabic_numerals.py`（新增 `iter_library_md()`，跳过 `.Z-Archive/.trash/.obsidian/.dedupe/.linkfix/.git`）、`fix_image_formats.py`（排除列表补 `.Z-Archive/.dedupe`）、`verify_against_source.py`（`os.walk` 跳过点开头目录）
+5. 文档同步：`SKILL.md`（资产位置表新增归档区行 ＋ id 多值行说明）、`references/fields.md`、`workflow/01-input.md`、`workflow/02-compose.md`、`workflow/05-range-analysis.md`、`README.md`
+
+**语义变化（须知）**：归档区改点开头后 Obsidian 不再索引 → ① 归档件的 wikilink 由「文件在但位置不合规」变为**真断链**（`check_note_links.py` 的 ARCHIVED 检测自行扫盘、不依赖 Obsidian 索引，仍然有效）；② 题库内同名文件（`25.md` 全库十余个）的**模糊匹配误伤风险随之消失**。
+
+**未改**：别名卷目录下的 `_重复题清单.md` 保持原位可见（用户 2026-09-27 裁定——它是还原原卷的依据，留卷内便于核对）。
+
+**验证（2026-09-27 实测）**：
+
+- `check_note_links.py`：索引文件数 2579 → **2581**（＋2 即归档区两件），id 数 2597 不变（归档件与主卷同 id），370 处链接全部正常、归档 0
+- `dedupe_questions.py --rollback .dedupe/2026-09-26.json`（dry-run）：归档还原路径正确显示为 `.Z-Archive\重复题\…`，旧日志映射生效
+- `iter_library_md()`：扫描 2617 篇，落在隐藏目录者 0
+- `scan_questions.py` / `fix_image_formats.py`：零新增问题（scan 报 7 项「缺字段 考区」属既有原创/黄牧航卷问题，与本次无关）
+- 库侧实况：`.Z-Archive/重复题/` 现存 2 件（`2026南阳一模_选择题/04.md`、`2026平顶山一模_材料解析题/22.md`）
+
+**复现（升级后重做）**：`qb_schema.py` 改 `ARCHIVE_ROOT`；`check_note_links.py` 的 `ARCHIVE_DIR` 改 import；`dedupe_questions.py` 补 `resolve_archived()` 并替换回滚两处取路径；三个全库遍历脚本补隐藏目录跳过；六处文档路径替换。
+
+---
+
 ## 2026-09-27 · `references/fields.md` 新增「考区标注规范」
 
 **背景**：题库总览「收录试卷清单」按考区分组后，发现 22 卷标注与卷名不一致（17 卷市级/区级卷标了「河南」，与同库其他市级卷口径冲突；省实验中学系列 5 卷因校名含省名而误标省）。已批量修正 551 个题目文件。

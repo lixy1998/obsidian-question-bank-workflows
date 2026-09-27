@@ -447,9 +447,12 @@ def strip_comments(body: str) -> str:
 # ---- 一题多卷与去重（v1.3.0 起）----
 # id 为多值 list：**首项 = 主卷 id**（本题文件所在卷），其余 = 收录本题的其他卷「卷名-题号」。
 #   例：id: [2024河南中考-08, 河南省实验中学2025-2026学年8上期末-03]
-# 重复题以主卷为准唯一存题，别名题归档到 {vault}/_归档/重复题/（详见 workflow/01-input.md「查重与合并」）
-ARCHIVE_ROOT = "_归档"            # vault 根下归档目录（不在 初中-*/高中-* 内，scan 天然不扫描）
+# 重复题以主卷为准唯一存题，别名题归档到 {vault}/.Z-Archive/重复题/（详见 workflow/01-input.md「查重与合并」）
+# ⚠ 归档根用**点开头**（2026-09-27 起）：Obsidian 不索引点开头目录 → 归档件不出现在面板、搜索与图谱中；
+#   代价是归档件的 wikilink 不再可解析，引用方一律改指主卷（check_note_links.py 负责）
+ARCHIVE_ROOT = ".Z-Archive"       # vault 根下归档目录（点开头＝Obsidian 隐藏；不在 初中-*/高中-* 内，scan 天然不扫描）
 ARCHIVE_DUP_SUBDIR = "重复题"      # 归档根下子目录
+LEGACY_ARCHIVE_ROOTS = ("_归档",)  # 历史日志（.dedupe/*.json）记录的旧归档根名，回滚时自动映射到 ARCHIVE_ROOT
 DEDUPE_LOG_DIR = ".dedupe"        # 合并日志目录（vault 根下）
 
 # 权威序（判「以谁为准」，数值越小越权威；同级按年份早者优先）
@@ -462,7 +465,7 @@ AUTHORITY_PATTERNS = [(0, r"一模|二模|三模|联考|模拟"), (1, r"期末")
 
 def is_question_file(p) -> bool:
     """题库题目文件判定：排除 README、导出卷（_学生版/_教师版）与下划线前缀辅助文件
-    （如 `_重复题清单.md`）；归档目录因不在 初中-*/高中-* 下，无需额外排除。"""
+    （如 `_重复题清单.md`）；归档区（`.Z-Archive/`）不在 初中-*/高中-* 下，无需额外排除。"""
     p = Path(p)
     if p.name == "README.md" or p.name.startswith("_"):
         return False

@@ -30,6 +30,20 @@ CN = {c: str(i) for i, c in enumerate("一二三四五六七八九十", 1)}
 BOOK_CN2AR = {"七上": "7上", "七下": "7下", "八上": "8上", "八下": "8下",
               "九上": "9上", "九下": "9下"}
 
+# 全库遍历须跳过的**顶层隐藏目录**（2026-09-27 起，随归档区改名 `.Z-Archive` 一并收紧）：
+#   .Z-Archive 归档区（Obsidian 不索引；归档题属留痕，不应被日常批处理改写）
+#   .trash 回收站 / .obsidian 配置与插件 / .dedupe 合并日志 / .linkfix 修复日志
+HIDDEN_SKIP = (".Z-Archive", ".trash", ".obsidian", ".dedupe", ".linkfix", ".git")
+
+
+def iter_library_md(vault: Path):
+    """库内 md（跳过 HIDDEN_SKIP 所列的顶层隐藏目录，其余递归）。"""
+    vault = Path(vault)
+    for md in sorted(vault.rglob("*.md")):
+        if md.relative_to(vault).parts[0] in HIDDEN_SKIP:
+            continue
+        yield md
+
 
 def ar_unit(m):
     """'第X单元' → '第X单元'（中文数字转阿拉伯）。"""
@@ -98,7 +112,7 @@ def main():
     total = 0
     changed = []
     # 1. 题库 YAML（册别 + 单元）
-    for md in sorted(vault.rglob("*.md")):
+    for md in iter_library_md(vault):
         if md.name.endswith(("_学生版.md", "_教师版.md")):
             continue
         n, new = scan_md(md)

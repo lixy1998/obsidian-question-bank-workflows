@@ -22,7 +22,7 @@
   · 主题 id 列表追加别名 id（幂等）；来源**成对追加**（卷名, 类型）
   · 册别/单元/课/小节/知识点/核心素养/素养层次水平/关键能力 取并集（主题在前）
   · 年份/考区/难度/分值 保留主题值，差异写入 YAML「解析」备注（正文保持纯净，学生卷安全）
-  · 别名题移入 {vault}/_归档/重复题/<原相对路径>；别名卷目录追加 `_重复题清单.md`
+  · 别名题移入 {vault}/.Z-Archive/重复题/<原相对路径>；别名卷目录追加 `_重复题清单.md`
   · 日志写入 {vault}/.dedupe/YYYY-MM-DD.json（含主题 frontmatter 快照，可 --rollback）
 """
 import argparse
@@ -35,10 +35,11 @@ from datetime import date
 from hashlib import sha1
 from pathlib import Path
 
-from qb_schema import (ARCHIVE_DUP_SUBDIR, ARCHIVE_ROOT, DEDUPE_LOG_DIR, VAULT,
-                       _yaml_scalar, as_list, authority_key, dump_yaml,
-                       is_question_file, norm_for_dedupe, source_pairs,
-                       split_frontmatter, stage_roots, strip_comments)
+from qb_schema import (ARCHIVE_DUP_SUBDIR, ARCHIVE_ROOT, DEDUPE_LOG_DIR,
+                       LEGACY_ARCHIVE_ROOTS, VAULT, _yaml_scalar, as_list,
+                       authority_key, dump_yaml, is_question_file,
+                       norm_for_dedupe, source_pairs, split_frontmatter,
+                       stage_roots, strip_comments)
 
 # 合并时取并集的字段（主题在前）
 UNION_FIELDS = ["册别", "单元", "课", "小节", "知识点",
@@ -552,6 +553,26 @@ def cmd_list_merged(args) -> None:
             print(f"    别名 {a}")
 
 
+def resolve_archived(raw_path) -> Path:
+    """定位归档件，兼容改名前的历史日志。
+
+    `.dedupe/*.json` 里的 `archived_to` 是**绝对路径快照**；归档根由 `_归档` 改为
+    `.Z-Archive` 后，旧日志按原路径找不到文件。旧代码 `if src.exists()` 会静默跳过
+    （既不报错也不还原），故此处按 LEGACY_ARCHIVE_ROOTS 把旧根名映射到现行
+    ARCHIVE_ROOT，命中即返回；都找不到则返回原路径，交由调用方判存在性。
+    """
+    p = Path(raw_path)
+    if p.exists():
+        return p
+    parts = list(p.parts)
+    for i, seg in enumerate(parts):
+        if seg in LEGACY_ARCHIVE_ROOTS:
+            cand = Path(*parts[:i], ARCHIVE_ROOT, *parts[i + 1:])
+            if cand.exists():
+                return cand
+    return p
+
+
 def cmd_rollback(args) -> None:
     log = json.loads(Path(args.rollback).read_text(encoding="utf-8"))
     entries = log.get("entries", [])
@@ -561,7 +582,7 @@ def cmd_rollback(args) -> None:
         t = Path(e["theme_file"])
         print(f"主题 {t}：恢复 frontmatter 快照；移除正文追加引用 {e.get('body_appended_refs')}")
         for a in e["aliases"]:
-            print(f"  归档还原：{a['archived_to']} → {a['file']}")
+            print(f"  归档还原：{resolve_archived(a['archived_to'])} → {a['file']}")
             if a.get("checklist_file"):
                 print(f"  清单删行：{a['checklist_file']} :: {a.get('checklist_line')}")
     if not args.apply:
@@ -574,7 +595,7 @@ def cmd_rollback(args) -> None:
             body = body.replace(ref, "").replace("\n\n\n", "\n\n")
         t.write_text(f"---\n{e['theme_frontmatter_before']}\n---\n\n{body.strip()}\n", encoding="utf-8")
         for a in e["aliases"]:
-            src, dst = Path(a["archived_to"]), Path(a["file"])
+            src, dst = resolve_archived(a["archived_to"]), Path(a["file"])
             if src.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(src), str(dst))

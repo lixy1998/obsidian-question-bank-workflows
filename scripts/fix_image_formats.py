@@ -165,7 +165,8 @@ def scan(vault):
     name_count = collections.Counter()
     img_by_name = collections.defaultdict(list)
     for dp, dn, fn in os.walk(vault):
-        dn[:] = [d for d in dn if d not in (".obsidian", ".git", ".trash")]
+        dn[:] = [d for d in dn if d not in (".obsidian", ".git", ".trash",
+                                            ".Z-Archive", ".dedupe")]
         for f in fn:
             p = Path(dp) / f
             ext = p.suffix.lower().lstrip(".")
