@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-09-27 · 归档落点再改为**库内 Obsidian 回收站** `.trash`（取代同日上一条的 `.Z-Archive`）
+
+**背景**：上一条落地 `.Z-Archive` 后，用户裁定「重复题改为移动至 Obsidian 回收站」。排查发现库内 `.trash` 当时是**空壳未启用**——`.obsidian/app.json` 的 `trashOption` 为 `system`（删除进 Windows 系统回收站）。选定**库内回收站**而非系统回收站：文件留在库内、Obsidian 回收站面板可一键**还原到原卷目录**、脚本仍能按路径取回（`--rollback` 与系统回收站方案不同，无需改建档重建逻辑）。
+
+**库侧改动**：
+
+1. 设置：经运行时 API 切换（`app.vault.setConfig('trashOption','local')` ＋ `setConfig('trashedFilesFolder','.trash')`）——⚠ **不可直接改 app.json**，运行中实例会用内存值写回；改后已确认落盘
+2. 迁移：`.Z-Archive/重复题/<相对路径>` 2 件 → `.trash/<相对路径>`（**剥掉 `重复题` 中间层**，见下）；空 `.Z-Archive` 目录树已删
+
+**skill 改动**：
+
+1. `scripts/qb_schema.py`：`ARCHIVE_ROOT` `".Z-Archive"` → `".trash"`；删除 `ARCHIVE_DUP_SUBDIR`（新落点无中间层）；`LEGACY_ARCHIVE_ROOTS` → `("_归档", ".Z-Archive")`
+2. `scripts/dedupe_questions.py`：归档路径拼装去掉 `ARCHIVE_DUP_SUBDIR`；新增 `LEGACY_DUP_SUBDIR = "重复题"`，`resolve_archived()` 改为**双候选**（先「剥中间层」再「原样换根名」）——旧日志路径是 `<旧根>/重复题/<相对路径>`，仅换根名会落到 `.trash/重复题/…` 而实际文件在 `.trash/…`，**实测第一版即因此映射失败**（回滚 dry-run 仍打印旧路径）
+3. `scripts/check_note_links.py`：注释与提示语随落点更新（`ARCHIVE_DIR` 已 import 自 `qb_schema`，无需改值）
+4. 文档：`SKILL.md`（资产位置表归档行改写为回收站语义）、`references/fields.md`、`workflow/01-input.md`·`02-compose.md`·`05-range-analysis.md`、`README.md`
+
+**⚠ 为何不加 `重复题/` 中间层**：Obsidian 回收站面板的「还原」按 `.trash/<原相对路径>` 归位；加一层会把文件还原到 `重复题/…` 下。**保还原能力优先于人工分类**（分类信息由 `.dedupe/*.json` 与卷内 `_重复题清单.md` 承担）。
+
+**语义变化（须知）**：
+
+- 归档件在 `.trash`，Obsidian 不索引 → 其 wikilink **不可解析**（`check_note_links.py` 自行扫盘，ARCHIVED 检测仍有效）
+- `.trash` 也是**用户日常删除的落点**：脚本扫 `.trash/**` 作 id 索引时，会连带纳入用户删过的题目文件；因「非归档优先」规则，不会顶掉在库件（无害，但 `.trash` 越大索引越慢）
+- 归档件是**可被清空的留痕**：用户清空回收站即丢失该凭据——**还原原卷的正源始终是原卷 PDF 存档**（见 `workflow/02-compose.md`）
+
+**验证（2026-09-27 实测）**：
+
+- `app.json` 落盘：`"trashOption": "local"` ＋ `"trashedFilesFolder": ".trash"`
+- 迁移后 `.trash/` 下 2 件、`.Z-Archive` 已不存在
+- `check_note_links.py`：索引 2581 文件（与 `.Z-Archive` 方案一致，归档件同样被扫）、370 链接全正常、归档 0
+- `dedupe --rollback .dedupe/2026-09-26.json`（dry-run）：归档还原显示 `.trash\初中-2中考模拟题\…`，旧日志（`_归档\重复题\…`）跨两级结构差异正确映射
+- `dedupe --list-merged`：正常输出多卷合并对
+
+**复现（升级后重做）**：`qb_schema` 改 `ARCHIVE_ROOT=".trash"` ＋ 新 LEGACY 两值、删 `ARCHIVE_DUP_SUBDIR`；`dedupe` 去中间层并给 `resolve_archived()` 加双候选；库侧先 `setConfig('trashOption','local')` 再迁移归档件（剥中间层）。
+
+---
+
 ## 2026-09-27 · 归档区改名 `.Z-Archive`（题库侧）＋ 脚本与文档同步
 
 **背景**：题库归档目录 `{vault}/_归档/` 由用户改名为 `{vault}/.Z-Archive/`（`重复题/` 子结构不变），使归档件在 Obsidian 面板/搜索/图谱中默认不显示。skill 侧路径与遍历逻辑全部随之同步。

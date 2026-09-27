@@ -30,10 +30,11 @@ CN = {c: str(i) for i, c in enumerate("一二三四五六七八九十", 1)}
 BOOK_CN2AR = {"七上": "7上", "七下": "7下", "八上": "8上", "八下": "8下",
               "九上": "9上", "九下": "9下"}
 
-# 全库遍历须跳过的**顶层隐藏目录**（2026-09-27 起，随归档区改名 `.Z-Archive` 一并收紧）：
-#   .Z-Archive 归档区（Obsidian 不索引；归档题属留痕，不应被日常批处理改写）
-#   .trash 回收站 / .obsidian 配置与插件 / .dedupe 合并日志 / .linkfix 修复日志
-HIDDEN_SKIP = (".Z-Archive", ".trash", ".obsidian", ".dedupe", ".linkfix", ".git")
+# 全库遍历须跳过的**顶层隐藏目录**（2026-09-27 起）：
+#   .trash      库内 Obsidian 回收站——一题多卷归档件落此，属留痕，不应被日常批处理改写
+#   .obsidian   配置与插件 / .dedupe 合并日志 / .linkfix 修复日志
+#   .Z-Archive  同日弃用的过渡落点，留作防御（万一残留或重建）
+HIDDEN_SKIP = (".trash", ".obsidian", ".dedupe", ".linkfix", ".git", ".Z-Archive")
 
 
 def iter_library_md(vault: Path):

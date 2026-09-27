@@ -22,7 +22,7 @@
   · 主题 id 列表追加别名 id（幂等）；来源**成对追加**（卷名, 类型）
   · 册别/单元/课/小节/知识点/核心素养/素养层次水平/关键能力 取并集（主题在前）
   · 年份/考区/难度/分值 保留主题值，差异写入 YAML「解析」备注（正文保持纯净，学生卷安全）
-  · 别名题移入 {vault}/.Z-Archive/重复题/<原相对路径>；别名卷目录追加 `_重复题清单.md`
+  · 别名题移入 {vault}/.trash/<原相对路径>（库内 Obsidian 回收站，可在面板还原到原位）；别名卷目录追加 `_重复题清单.md`
   · 日志写入 {vault}/.dedupe/YYYY-MM-DD.json（含主题 frontmatter 快照，可 --rollback）
 """
 import argparse
@@ -35,7 +35,7 @@ from datetime import date
 from hashlib import sha1
 from pathlib import Path
 
-from qb_schema import (ARCHIVE_DUP_SUBDIR, ARCHIVE_ROOT, DEDUPE_LOG_DIR,
+from qb_schema import (ARCHIVE_ROOT, DEDUPE_LOG_DIR,
                        LEGACY_ARCHIVE_ROOTS, VAULT, _yaml_scalar, as_list,
                        authority_key, dump_yaml, is_question_file,
                        norm_for_dedupe, source_pairs, split_frontmatter,
@@ -46,6 +46,8 @@ UNION_FIELDS = ["册别", "单元", "课", "小节", "知识点",
                 "核心素养", "素养层次水平", "关键能力"]
 # 保留主题值的字段（差异写入解析备注）
 KEEP_FIELDS = ["年份", "考区", "难度", "分值"]
+# 旧归档结构的中间层名（`<归档根>/重复题/<相对路径>`）——新落点已去掉该层，仅供历史日志回滚兼容
+LEGACY_DUP_SUBDIR = "重复题"
 
 OPT_MARK_RE = re.compile(r"[（(]\s*([A-F])\s*[)）]")
 IMG_RE = re.compile(r"!\[\]\(images/([^)\s]+)\)")
@@ -447,7 +449,7 @@ def cmd_merge(args) -> None:
             img_refs.append(f"![](images/{new_name})")
         notes.append(f"《{a_primary}》{note}")
         entries.append({"file": str(ap), "id": a_primary,
-                        "archived_to": str(Path(VAULT) / ARCHIVE_ROOT / ARCHIVE_DUP_SUBDIR
+                        "archived_to": str(Path(VAULT) / ARCHIVE_ROOT
                                            / ap.relative_to(Path(VAULT))),
                         "images": [{"src": str(s), "name": nm} for s, nm in local_refs],
                         "yaml_note": f"> 【一题多卷】另见《{a_primary}》（差异：{note}）"})
@@ -520,7 +522,8 @@ def cmd_merge(args) -> None:
         if not ck.exists():
             ck.write_text(f"# 重复题清单 · {vol_dir.name}\n\n"
                           f"> 本卷以下题目与题库内权威版本重复，按「一题多卷」规则归档（位置 "
-                          f"`{ARCHIVE_ROOT}/{ARCHIVE_DUP_SUBDIR}/{dst_p.parent.relative_to(Path(VAULT) / ARCHIVE_ROOT / ARCHIVE_DUP_SUBDIR).as_posix()}`）。\n"
+                          f"`{ARCHIVE_ROOT}/{dst_p.parent.relative_to(Path(VAULT) / ARCHIVE_ROOT).as_posix()}`，"
+                          f"即库内 Obsidian 回收站，可在回收站面板还原到原位）。\n"
                           f"> 题库不重复存题；需要还原本卷时按「主题 id」取题。\n\n"
                           f"| 本卷题号 | 本卷 id | 主题 id | 合并日期 |\n|---|---|---|---|\n",
                           encoding="utf-8")
@@ -556,8 +559,8 @@ def cmd_list_merged(args) -> None:
 def resolve_archived(raw_path) -> Path:
     """定位归档件，兼容改名前的历史日志。
 
-    `.dedupe/*.json` 里的 `archived_to` 是**绝对路径快照**；归档根由 `_归档` 改为
-    `.Z-Archive` 后，旧日志按原路径找不到文件。旧代码 `if src.exists()` 会静默跳过
+    `.dedupe/*.json` 里的 `archived_to` 是**绝对路径快照**；归档落点先后历 `_归档` →
+    `.Z-Archive` → 库内回收站 `.trash`，旧日志按原路径找不到文件。旧代码 `if src.exists()` 会静默跳过
     （既不报错也不还原），故此处按 LEGACY_ARCHIVE_ROOTS 把旧根名映射到现行
     ARCHIVE_ROOT，命中即返回；都找不到则返回原路径，交由调用方判存在性。
     """
@@ -566,10 +569,18 @@ def resolve_archived(raw_path) -> Path:
         return p
     parts = list(p.parts)
     for i, seg in enumerate(parts):
-        if seg in LEGACY_ARCHIVE_ROOTS:
-            cand = Path(*parts[:i], ARCHIVE_ROOT, *parts[i + 1:])
-            if cand.exists():
-                return cand
+        if seg not in LEGACY_ARCHIVE_ROOTS:
+            continue
+        tail = parts[i + 1:]
+        cands = []
+        # 旧结构 `<根>/重复题/<相对路径>` 有中间层；新落点（回收站，为保面板还原能力）**去掉了该层**，
+        # 故先试「剥掉中间层」，再试「原样换根名」——两者都试，命中即返回。
+        if tail and tail[0] == LEGACY_DUP_SUBDIR:
+            cands.append(Path(*parts[:i], ARCHIVE_ROOT, *tail[1:]))
+        cands.append(Path(*parts[:i], ARCHIVE_ROOT, *tail))
+        for c in cands:
+            if c.exists():
+                return c
     return p
 
 

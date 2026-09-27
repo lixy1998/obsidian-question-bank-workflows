@@ -273,7 +273,7 @@ def find_answer_files(vault, juan):
     """在 vault 下定位 {卷名}/{卷名}_{题型}/*.md"""
     hits = []
     for root, dirs, files in os.walk(vault):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]   # 跳过隐藏目录（.Z-Archive/.trash/.obsidian…）
+        dirs[:] = [d for d in dirs if not d.startswith(".")]   # 跳过隐藏目录（.trash/.obsidian/.dedupe…）
         for f in files:
             if not f.endswith('.md'):
                 continue
