@@ -223,8 +223,11 @@ def split_source(text, want_juan=None):
     cur, buf = None, []
     for ln in text.split('\n'):
         s = ln.strip()
-        m = re.match(r'^(\d{1,2})[.．]\s*(.*)$', s)
-        if m and not s.startswith('##'):
+        # ⚠ 题号行可能被 MinerU 识别成 markdown 标题（如 `## 17. 阅读材料…`）——
+        #   2026-09-28 四川卷实测：不容许标题前缀时 17/19 题整块丢失、16/18 题被后续内容撑爆
+        #   （相似度 0.24/0.42 假阳性）。故题号匹配容许 `#`~`######` 前缀。
+        m = re.match(r'^(?:#{1,6}[ \t]*)?(\d{1,2})[.．]\s*(.*)$', s)
+        if m:
             if cur is not None:
                 src[cur] = '\n'.join(buf)
             cur, buf = int(m.group(1)), [m.group(2)]
