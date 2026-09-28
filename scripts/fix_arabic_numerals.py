@@ -114,7 +114,7 @@ def main():
     changed = []
     # 1. 题库 YAML（册别 + 单元）
     for md in iter_library_md(vault):
-        if md.name.endswith(("_学生版.md", "_教师版.md")):
+        if md.name.endswith(("_学生版.md", "_教师版.md", "_命题说明.md")):
             continue
         n, new = scan_md(md)
         if n:

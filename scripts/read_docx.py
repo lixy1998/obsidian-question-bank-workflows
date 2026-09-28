@@ -128,7 +128,7 @@ def _table_md(table, doc, img_dir, counter):
 
 def main():
     ap = argparse.ArgumentParser(description="docx 文字版卷子 → 结构化 md + 图片提取")
-    ap.add_argument("docx", help="Word 试卷路径（教师用卷/普通用卷均可）")
+    ap.add_argument("docx", help="Word 试卷路径（学生卷或卷内带答案的卷均可）")
     ap.add_argument("-o", "--out", default=None, help="输出目录（默认与 docx 同目录）")
     args = ap.parse_args()
 

@@ -291,7 +291,8 @@ def verify_docx(path, min_body=12.0, min_sub=9.0, min_net_mm=3.0, rpt=None, mani
     else:
         rpt.add("B5", LEVEL_MANUAL, "未检出右对齐的材料出处（河南卷惯例：`——摘编自……` 右对齐）")
 
-    # B7 教师卷答案分页
+    # B7 答案区：学生卷不含答案；若卷内含答案区（旧式教师卷）则须分页另起
+    #     （v4 起「教师卷」已改为独立的《命题说明》内部资料，不参与本项）
     page_break = False
     for para in doc.paragraphs:
         if para.paragraph_format.page_break_before:
@@ -384,7 +385,7 @@ def verify_volume(vol, rpt=None):
             f"正文图片引用：{'全部存在' if not miss_img else '缺失 ' + '、'.join(miss_img[:5])}")
     rpt.add("B1-empty", LEVEL_OK if not empty else LEVEL_BAD,
             f"正文非空：{'全部有内容' if not empty else '空正文 ' + '、'.join(empty[:5])}")
-    # 导出物（学生卷）不应含答案
+    # 导出物（学生卷）不应含答案；《命题说明》为内部资料、含答案属正常，不参与本项
     for stu in vol_dir.glob("*_学生版.md"):
         txt = stu.read_text(encoding="utf-8")
         hit = "答案" in txt or "解析" in txt

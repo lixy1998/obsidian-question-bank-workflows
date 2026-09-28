@@ -271,7 +271,7 @@ ANS_LINE = re.compile(r"^\s*\d{1,2}\s*[．.、]\s*[A-DＡ-Ｄ](?:\s|　)*\d{1,2}
 
 
 def extract_answers(lines: list) -> dict:
-    """从成品卷（教师卷）提取答案连排行 → {题号: 答案}。"""
+    """从成品卷提取答案连排行（成品卷卷内带答案时）→ {题号: 答案}。"""
     ans = {}
     for line in lines:
         if not ANS_LINE.match(line):

@@ -472,7 +472,7 @@ def is_question_file(p) -> bool:
     p = Path(p)
     if p.name == "README.md" or p.name.startswith("_"):
         return False
-    if p.name.endswith(("_学生版.md", "_教师版.md")):
+    if p.name.endswith(("_学生版.md", "_教师版.md", "_命题说明.md")):
         return False
     return True
 

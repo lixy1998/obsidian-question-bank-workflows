@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
-"""export_student_paper.py — 组卷导出（清单驱动，v3）
+"""export_student_paper.py — 组卷导出（清单驱动，v4）
 
-主用法：吃一份「组卷清单」→ 出学生卷/教师卷（md 或 Word）。
-清单是**有序的题目引用**（可跨卷），每项可带分值/来源括注/考察角度；
+主用法：吃一份「组卷清单」→ 出**学生卷**与**命题说明**（md 或 Word）。
+清单是**有序的题目引用**（可跨卷），每项可带分值/来源括注/考察角度/选项序；
 题目正文实时从题库读取，清单只管「选哪些、什么顺序、怎么标注」。
 
 用法：
   # ① 清单驱动（主用法）
   python export_student_paper.py --清单 组卷清单.yaml --模式 学生 --输出 <out.md>
-  python export_student_paper.py --清单 组卷清单.yaml --模式 教师 --输出 <out.md>
-  python export_student_paper.py --清单 组卷清单.yaml --docx <out.docx>
+  python export_student_paper.py --清单 组卷清单.yaml --docx <out.docx>     # 学生卷 Word（默认同出答题卡）
+  python export_student_paper.py --清单 组卷清单.yaml --模式 命题说明 --docx 命题说明.docx
   python export_student_paper.py --清单 组卷清单.yaml --体检
-  python export_student_paper.py --清单 组卷清单.yaml --模式 教师 --docx out.docx
+  python export_student_paper.py --清单 组卷清单.yaml --均衡选项            # 答案分布诊断 + 重排方案
 
-  # ② 按卷导出（兼容原用法）
+  # ② 按卷导出（兼容原用法，仅支持学生卷）
   python export_student_paper.py --卷 2024河南中考 --only 01,03
   python export_student_paper.py --卷 "A,B" --only "A:01;B:07" --输出 out.md
 
@@ -30,13 +30,17 @@
       分值: 2
       来源: (2026·湖北中考·27)           # 学生卷按 --标来源 决定是否出现在卷面
       角度: 第1课·文明起源——知识卡片式材料判断农业文明起源的多源性
+      选项序: [3,1,2,4]                  # 新 A/B/C/D 位依次放**原第**几项，答案自动换算
 
   兼容 9/21 式 selected.json：顶层为数组、元素带 id/文件 快照，自动识别。
 
 输出：
-  md   —— 卷头 + 题号重编（1．2．…）+ 题干原文；教师卷附答案/解析/来源/角度
-  docx —— 按《试卷排版规范》成卷：A4、宋体 12pt、固定行距 24pt、选项两项一行、
-          图片居中（图注紧随）、教师卷答案分页另起、页脚页码域
+  md／docx 学生卷 —— 卷头 + 题号重编（1．2．…）+ 题干原文；Word 版按《试卷排版规范》
+          成卷：A4、宋体 12pt、固定行距 24pt、选项两项一行、图片居中（图注紧随）、页脚页码域
+  md／docx 命题说明 —— 题目来源与考察角度（内部资料，不随试卷印发）：
+      一、试卷结构与命题思路（卷面结构／单元配比／能力维度／难度与答案分布）
+      二、选择题命题细目　三、非选择题命题细目
+      四、参考答案与评分标准　五、组卷处理说明与待办
   图片 —— 统一放 {输出目录}/images/{卷名}/（跨卷同名图不冲突），md 引用同步改写
 """
 import argparse
@@ -622,7 +626,7 @@ def render_md(man: dict, recs: list, mode: str, mark_src: bool) -> str:
         if mark_src and mode == "学生" and r["来源括注"]:
             no += str(r["来源括注"])                 # 来源括注紧跟题号后（§12.1）
         parts.append(f"{no}{body.strip()}")
-        if mode == "教师":
+        if mode == "教师":      # v4：命题说明已独立成文档，本分支不再触达（保留供复用）
             fm = r["fm"]
             tail = [f"**答案**：{r['_ans']}"]
             jx = str(fm.get("解析", "") or "").strip()
@@ -659,6 +663,524 @@ def render_md(man: dict, recs: list, mode: str, mark_src: bool) -> str:
             parts.extend(tail)
         parts.append("")
     return "\n".join(parts).rstrip() + "\n"
+
+
+# ============================================================================
+# 五之二、命题说明（题目来源与考察角度）
+# ============================================================================
+
+SRC_TYPE_TAGS = {"真题", "模拟卷", "期末卷", "期中卷", "月考卷", "原创题",
+                 "教材改编", "中考改编", "阶段测试", "练习卷", "联考卷", "期末"
+                 }
+CHOICE_COLS = ["A1-识记", "A2-说明", "A3-概括", "B1-比较", "B2-分析", "B3-评价／C 类"]
+KP_DROP_RE = re.compile(r"已弃用|待核|存疑|待删|废弃|新教材已")
+_LESSON_RE = re.compile(r"第\s*(\d+)\s*课")
+
+
+def effective_answer(r: dict) -> str:
+    """清单「选项序」换算后的答案字母（未重排则取题库答案）。"""
+    old = str(r["fm"].get("答案", "")).strip()
+    seq = r.get("选项序")
+    if not seq or len(old) != 1 or old not in "ABCD":
+        return old
+    perm = [int(x) - 1 for x in seq]
+    if len(perm) != 4 or sorted(perm) != [0, 1, 2, 3]:
+        return old
+    return "ABCD"[perm.index("ABCD".index(old))]
+
+
+def short_lesson(name) -> str:
+    """课名取「第X课」前缀，用于兼涉标注等紧凑场景。"""
+    m = _LESSON_RE.match(str(name).strip())
+    return f"第{m.group(1)}课" if m else str(name).strip()
+
+
+def lesson_no(name):
+    m = _LESSON_RE.search(str(name))
+    return int(m.group(1)) if m else None
+
+
+def lesson_cell(r: dict) -> str:
+    """考查课：首项＝主考；其余为兼涉（须在材料/设问中可指认，选项不算）。"""
+    ls = [x for x in as_list(r["fm"].get("课")) if str(x).strip()]
+    if not ls:
+        return ""
+    head, rest = str(ls[0]).strip(), [short_lesson(x) for x in ls[1:]]
+    return head + ("（兼涉" + "、".join(rest) + "）" if rest else "")
+
+
+def clean_src(r: dict) -> str:
+    """题目来源：题库卷名（剔除类型标签后的首项）。"""
+    srcs = [str(x).strip() for x in as_list(r["fm"].get("来源"))
+            if str(x).strip() and str(x).strip() not in SRC_TYPE_TAGS]
+    return srcs[0] if srcs else str(r["vol"])
+
+
+def angle_cell(r: dict) -> str:
+    """考查角度：清单「角度」优先，否则取知识点前两项（剔除内部标注项）。"""
+    if r.get("角度"):
+        return str(r["角度"])
+    kps = [str(x).strip() for x in as_list(r["fm"].get("知识点"))
+           if str(x).strip() and not KP_DROP_RE.search(str(x))]
+    return "｜".join(kps[:2])
+
+
+def scope_cell(r: dict) -> str:
+    """非选择题考查范围：主考课＋兼涉课（跨册时带上册别，避免「第9课」歧义）。"""
+    ls = [str(x).strip() for x in as_list(r["fm"].get("课")) if str(x).strip()]
+    if not ls:
+        return "—"
+    books = [str(x).strip() for x in as_list(r["fm"].get("册别"))]
+    head_book = books[0] if books else ""
+    rest = []
+    for i, c in enumerate(ls[1:], start=1):
+        bk = books[i] if i < len(books) else (books[-1] if books else "")
+        tag = short_lesson(c)
+        if bk and bk != head_book:
+            tag = f"{bk}{tag}"
+        rest.append(tag)
+    return ls[0] + ("（兼涉" + "、".join(rest) + "）" if rest else "")
+
+
+def ability_cells(r: dict) -> list:
+    """关键能力 → 表内文本（多值以「／」连接）。"""
+    ks = [str(x).strip() for x in as_list(r["fm"].get("关键能力")) if str(x).strip()]
+    return "／".join(ks) if ks else "—"
+
+
+def ability_bucket(key: str) -> str:
+    """关键能力归并到 9 要素六列（C 类合并）。"""
+    k = str(key).strip().upper()
+    for pre, col in (("A1", "A1-识记"), ("A2", "A2-说明"), ("A3", "A3-概括"),
+                     ("B1", "B1-比较"), ("B2", "B2-分析"), ("B3", "B3-评价")):
+        if k.startswith(pre):
+            return "B3-评价／C 类" if col == "B3-评价" else col
+    if k.startswith(("C1", "C2", "C3")):
+        return "B3-评价／C 类"
+    return ""
+
+
+def sub_questions(body: str, total=None, override=None, limit: int = 46) -> list:
+    """非选择题小问 → [(号, 文字, 分值)]。
+
+    分值口径（与答题卡留白同一套判定）：清单「小问分值」> 正文自带分值之和恰等于卷面分值
+    > 按卷面分值均分（避免原卷赋分与本卷赋分不符时细目表失真）。
+    """
+    txt = re.sub(r"<[^>]+>", " ", body)
+    txt = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", txt)
+    txt = re.sub(r"\s+", " ", txt)
+    raw = []
+    for p in re.split(r"(?=[（(]\d+[）)])", txt):
+        m = re.match(r"^[（(](\d+)[）)]\s*(.*)$", p.strip())
+        if not m:
+            continue
+        seg = m.group(2).strip()
+        sc = re.search(r"[（(]\s*(\d+)\s*分[^）)]*[）)]", seg)
+        seg = re.split(r"[（(]\s*\d+\s*分", seg)[0].strip().strip("，,。；;、 ")
+        if len(seg) > limit:
+            seg = seg[:limit] + "…"
+        raw.append((m.group(1), seg, int(sc.group(1)) if sc else None))
+    n = len(raw)
+    if not n:
+        return []
+    scores = None
+    if override and len(override) == n:
+        scores = [int(x) for x in override]
+    elif str(total).strip().isdigit() and all(x[2] is not None for x in raw) \
+            and sum(x[2] for x in raw) == int(total):
+        scores = [x[2] for x in raw]
+    elif str(total).strip().isdigit():
+        base, rest = divmod(int(total), n)
+        scores = [base + (1 if i < rest else 0) for i in range(n)]
+    return [(a, b, scores[i] if scores else c) for i, (a, b, c) in enumerate(raw)]
+
+
+def spec_lines(man: dict, recs: list) -> list:
+    """生成「命题说明（题目来源与考察角度）」的 md 行列表。"""
+    from collections import Counter, OrderedDict
+    ch = [r for r in recs if is_choice(r)]
+    nc = [r for r in recs if not is_choice(r)]
+    tot = sum(int(r["分值"]) for r in recs if str(r["分值"]).strip().isdigit())
+    ch_tot = sum(int(r["分值"]) for r in ch if str(r["分值"]).strip().isdigit())
+    nc_tot = sum(int(r["分值"]) for r in nc if str(r["分值"]).strip().isdigit())
+
+    out = []
+    title = man.get("标题") or man.get("卷名") or "组卷"
+    out.append(f"# {title}")
+    out.append("")
+    out.append("## 命题说明（题目来源与考察角度）")
+    out.append("")
+    out.append("（内部资料，不随试卷印发）")
+    out.append("")
+
+    # ------------------------------ 一、试卷结构与命题思路
+    out.append("### 一、试卷结构与命题思路")
+    out.append("")
+    out.append("**1．卷面结构**")
+    out.append("")
+    if ch:
+        per = Counter(str(r["分值"]).strip() for r in ch).most_common(1)[0][0]
+        if per.isdigit() and int(per) * len(ch) == ch_tot:
+            ch_desc = f"选择题 {len(ch)} 小题（每小题 {per} 分，共 {ch_tot} 分）"
+        else:
+            ch_desc = f"选择题 {len(ch)} 小题（共 {ch_tot} 分）"
+    else:
+        ch_desc = "本卷不含选择题"
+    nc_desc = (f"非选择题 {len(nc)} 小题（共 {nc_tot} 分）" if nc else "本卷不含非选择题")
+    head_note = ""
+    for n in (man.get("说明") or []):
+        if re.search(r"满分|用时|时间", str(n)):
+            head_note = f"（卷头注明「{str(n).strip()}」）"
+            break
+    out.append(f"本卷共 {len(recs)} 小题，满分 {tot} 分。{ch_desc}；{nc_desc}。{head_note}")
+    out.append("")
+
+    # 2．各部分比例安排（按单元）
+    out.append("**2．各部分比例安排**")
+    out.append("")
+    groups = OrderedDict()
+    for r in recs:
+        us = [str(x).strip() for x in as_list(r["fm"].get("单元")) if str(x).strip()]
+        key = us[0] if us else "（未标注单元）"
+        groups.setdefault(key, []).append(r)
+    has_unit = any(k != "（未标注单元）" for k in groups)
+    if has_unit:
+        out.append("| 单元 | 课时 | 选择题 | 分值 | 涵盖课 |")
+        out.append("|---|---|---|---|---|")
+        for u, rs in groups.items():
+            sel = [r for r in rs if is_choice(r)]
+            s = sum(int(r["分值"]) for r in rs if str(r["分值"]).strip().isdigit())
+            # 课时范围与涵盖课只取**主考课**（首项）——兼涉可能是跨册课（如 7上第9课），会污染范围
+            main = [str(as_list(r["fm"].get("课"))[0]).strip()
+                    for r in rs if as_list(r["fm"].get("课"))]
+            nos = sorted({n for n in (lesson_no(x) for x in main) if n})
+            span = (f"第{nos[0]}—{nos[-1]}课" if len(nos) > 1
+                    else f"第{nos[0]}课" if nos else "—")
+            covered = "、".join(dict.fromkeys(
+                x.split(" ", 1)[1] if " " in x else x for x in main)) or "—"
+            out.append(f"| {u} | {span} | {len(sel)}题 | {s}分 | {covered} |")
+        out.append(f"| 合计 | {len(recs)}题 | {len(ch)}题 | {tot}分 | — |")
+        out.append("")
+
+    # 3．学科能力维度
+    out.append("**3．学科能力维度（郑林 9 要素）**")
+    out.append("")
+    bucket = Counter()
+    for r in recs:
+        for k in as_list(r["fm"].get("关键能力")):
+            col = ability_bucket(k)
+            if col:
+                bucket[col] += 1
+    n_b = sum(bucket.values()) or 1
+    out.append("| 能力要素 | " + " | ".join(CHOICE_COLS) + " |")
+    out.append("|---|" + "---|" * len(CHOICE_COLS))
+    out.append("| 题量（含兼涉） | "
+               + " | ".join(f"{bucket.get(c, 0)}题" for c in CHOICE_COLS) + " |")
+    out.append("| 占比 | "
+               + " | ".join(f"{round(bucket.get(c, 0) * 100 / n_b)}%" for c in CHOICE_COLS)
+               + " |")
+    out.append("")
+    top = bucket.most_common(2)
+    if top:
+        pair = "＋".join(c for c, _ in top)
+        share = round(sum(v for _, v in top) * 100 / n_b)
+        out.append(f"以 {pair} 为主，合计约 {share}%（含兼涉口径，一题多要素重复计入）。")
+        out.append("")
+
+    # 4．难度与答案分布
+    out.append("**4．难度与答案分布**")
+    out.append("")
+    diff = Counter(str(r["fm"].get("难度", "?")).strip() for r in recs)
+    d_desc = "、".join(f"{k} {v} 题" for k, v in
+                       sorted(diff.items(), key=lambda kv: "易中难".find(kv[0][:1])))
+    out.append(f"难度：{d_desc}。")
+    out.append("")
+    if ch:
+        ans = Counter(effective_answer(r) for r in ch)
+        ans = Counter({k: v for k, v in ans.items() if k in "ABCD"})
+        a_desc = "、".join(f"{k} {v} 题" for k, v in sorted(ans.items()))
+        seq = [effective_answer(r) for r in ch]
+        runs, cur, start = [], 1, 0
+        for i in range(1, len(seq)):
+            if seq[i] and seq[i] == seq[i - 1]:
+                cur += 1
+            else:
+                runs.append((start + 1, i, seq[start], cur))
+                cur, start = 1, i
+        runs.append((start + 1, len(seq), seq[start], cur))
+        longest = max((x[3] for x in runs), default=1)
+        tail = "；最长连续同项 " + "、".join(
+            f"第{s}—{e}题 {a}（{n}连）" for s, e, a, n in runs if n == longest)
+        long = [x for x in runs if x[3] >= 3 and x[3] != longest]
+        if long:
+            tail += "，另有 " + "、".join(f"第{s}—{e}题 {a}（{n}连）" for s, e, a, n in long)
+        out.append(f"答案分布：{a_desc}{tail}。")
+        if len(ch) >= 8 and (max(ans.values()) - min(ans.values())) > max(1, len(ch) * 0.15):
+            out.append("")
+            out.append("⚠ 分布偏斜，建议用 `--均衡选项` 生成「选项序」后写回清单，再重出本说明。")
+        out.append("")
+
+    # 5．重复规避（有「排除卷」信息才出）
+    excl = man.get("排除卷") or man.get("去重卷")
+    if excl:
+        out.append("**5．与已用卷的重复规避**")
+        out.append("")
+        out.append(f"组卷前已比对：{excl}；本卷题目与该卷无一重复。")
+        out.append("")
+
+    # ------------------------------ 二、选择题命题细目
+    if ch:
+        out.append(f"### 二、选择题命题细目（第 1—{len(ch)} 题）")
+        out.append("")
+        out.append("| 题号 | 考查课 | 考查角度 | 关键能力 | 难度 | 题目来源 |")
+        out.append("|---|---|---|---|---|---|")
+        for i, r in enumerate(ch, 1):
+            out.append(f"| {i} | {lesson_cell(r)} | {angle_cell(r)} | {ability_cells(r)} | "
+                       f"{str(r['fm'].get('难度', '')).strip()} | {clean_src(r)} |")
+        out.append("")
+        moved = [i for i, r in enumerate(ch, 1) if r.get("选项序")]
+        if moved:
+            out.append(f"注：第 {'、'.join(map(str, moved))} 题选项顺序已重排"
+                       f"（见第五部分）；「考查角度」前列为该题的核心落点。")
+        else:
+            out.append("注：「考查角度」前列为该题的核心落点。")
+        out.append("")
+
+    # ------------------------------ 三、非选择题命题细目
+    if nc:
+        base = len(ch)
+        out.append(f"### 三、非选择题命题细目（第 {base + 1}—{len(recs)} 题）")
+        out.append("")
+        out.append("| 题号 | 考查范围 | 考查角度 | 设问与分值 | 关键能力 | 难度 | 题目来源 |")
+        out.append("|---|---|---|---|---|---|---|")
+        for i, r in enumerate(nc, base + 1):
+            subs = sub_questions(r["body"], r["分值"], r.get("小问分值"))
+            desc = " ".join(
+                f"({a}) {b}（{c}分）" if c else f"({a}) {b}" for a, b, c in subs) or "—"
+            rng = scope_cell(r)
+            out.append(f"| {i} | {rng} | {angle_cell(r)} | {desc} | {ability_cells(r)} | "
+                       f"{str(r['fm'].get('难度', '')).strip()} | {clean_src(r)} |")
+        out.append("")
+
+    # ------------------------------ 四、参考答案与评分标准
+    out.append("### 四、参考答案与评分标准")
+    out.append("")
+    if ch:
+        per = Counter(str(r["分值"]).strip() for r in ch).most_common(1)[0][0]
+        cap = f"（每小题 {per} 分，共 {ch_tot} 分）" if per.isdigit() else f"（共 {ch_tot} 分）"
+        out.append(f"**1．选择题**{cap}")
+        out.append("")
+        ans = [f"{i}．{effective_answer(r)}" for i, r in enumerate(ch, 1)]
+        for k in range(0, len(ans), 10):
+            out.append("\u3000".join(ans[k:k + 10]))
+        out.append("")
+    if nc:
+        out.append(f"**2．非选择题**（共 {nc_tot} 分）")
+        out.append("")
+        for i, r in enumerate(nc, len(ch) + 1):
+            a = str(r["fm"].get("答案", "") or "").strip()
+            a = re.sub(r"\n{2,}", "\n", a)
+            a = a.replace("\n", " ")
+            out.append(f"{i}．{a}")
+            out.append("")
+
+    # ------------------------------ 五、组卷处理说明与待办
+    out.append("### 五、组卷处理说明与待办")
+    out.append("")
+    items = ["试卷不标注题目来源（按命题要求）；材料出处「——摘编自……」属材料本身的"
+             "引用信息，予以保留。题目来源见本说明第二、三部分。"]
+    changed = [(i, r) for i, r in enumerate(recs, 1)
+               if str(r["分值"]).strip().isdigit()
+               and str(r["fm"].get("分值", "")).strip().isdigit()
+               and int(r["分值"]) != int(r["fm"]["分值"])]
+    if changed:
+        items.append("分值调整：第 " + "、".join(str(i) for i, _ in changed)
+                     + " 题的卷面分值与原题不同（按本卷总分结构统一赋分），设问文字未作改动。")
+    moved = [(i, r) for i, r in enumerate(recs, 1) if r.get("选项序")]
+    if moved:
+        parts = []
+        for i, r in moved:
+            old = str(r["fm"].get("答案", "")).strip()
+            seq = [int(x) - 1 for x in r["选项序"]]
+            pos = "ABCD"[seq.index("ABCD".index(old))] if old in "ABCD" else "?"
+            parts.append(f"第 {i} 题正确项由 {old} 位移至 {pos} 位")
+        items.append(f"选项重排：为均衡全卷答案分布，对 {len(moved)} 道题作了选项顺序调整——"
+                     + "，".join(parts)
+                     + "。均为同题内部选项内容互换，题干与干扰项文字未变；"
+                       "学生卷与参考答案使用同一版本。")
+    mismatch = []
+    for i, r in enumerate(nc, len(ch) + 1):
+        a = str(r["fm"].get("答案", "") or "")
+        got = [int(x) for x in re.findall(r"[（(]\s*(\d+)\s*分", a)]
+        if got and str(r["分值"]).strip().isdigit() and sum(got) != int(r["分值"]):
+            mismatch.append(i)
+    if mismatch:
+        items.append("答案分值核对：第 " + "、".join(map(str, mismatch))
+                     + " 题题库答案文本自带的分值与本卷赋分值不同，"
+                       "请按卷面分值核对评分标准文字。")
+    pics = [i for i, r in enumerate(recs, 1) if iter_img_refs(r["body"])]
+    if pics:
+        items.append(f"图片处理：第 {'、'.join(map(str, pics))} 题含图，"
+                     "图片取用题库内原卷图，统一放输出目录的 `images/{卷名}/`。"
+                     "卷面撤图或换图的，请以卷面实际为准。")
+    noans = [i for i, r in enumerate(recs, 1) if not str(r["fm"].get("答案", "")).strip()]
+    if noans:
+        items.append(f"待办：第 {'、'.join(map(str, noans))} 题题库未标答案，请补录后再用。")
+    items.append("版式：正文宋体小四、固定行距 24 磅，辅文五号，符合 GB 40070-2021 "
+                 "字号与行空要求；成卷后跑 `verify_paper_layout.py --docx` 复核。")
+    for k, it in enumerate(items, 1):
+        out.append(f"{k}．{it}")
+        out.append("")
+    return out
+
+
+# ============================================================================
+# 五之三、答案分布诊断与自动均衡
+# ============================================================================
+
+def balance_options(recs: list) -> list:
+    """诊断选择题答案分布并给出重排方案。
+
+    → [(卷面题号, 现答案, 新答案, 选项序)]；已带「选项序」的题视为人工已定，不再改动。
+    目标：各字母计数尽量相等（余数补给当前较少的字母），且尽量避免三连及以上同项。
+    """
+    ch = [(i, r) for i, r in enumerate(recs, 1) if is_choice(r)]
+    if len(ch) < 6:
+        return []
+    seq = [effective_answer(r) for _, r in ch]
+    fixed = [bool(r.get("选项序")) for _, r in ch]
+    n = len(ch)
+
+    quota = {c: n // 4 for c in "ABCD"}
+    for c in sorted("ABCD", key=lambda x: seq.count(x))[:n % 4]:
+        quota[c] += 1
+    for i, f in enumerate(fixed):
+        if f and seq[i] in quota:
+            quota[seq[i]] = max(0, quota[seq[i]] - 1)
+
+    target = list(seq)
+    for i in range(n):
+        if fixed[i]:
+            continue
+        cand = [c for c in "ABCD" if quota[c] > 0] or list("ABCD")
+        pick = None
+        if seq[i] in cand and not (i >= 2 and target[i - 1] == seq[i] and target[i - 2] == seq[i]):
+            pick = seq[i]
+        if pick is None:
+            def penalty(c, i=i):
+                p = 1 if (i >= 1 and target[i - 1] == c) else 0
+                if i >= 2 and target[i - 2] == c:
+                    p += 3
+                if i + 1 < n and target[i + 1] == c:
+                    p += 1
+                return p
+            pick = min(cand, key=penalty)
+        target[i] = pick
+        quota[pick] -= 1
+
+    plan = []
+    for i, (no, _r) in enumerate(ch):
+        if fixed[i] or target[i] == seq[i]:
+            continue
+        a, b = "ABCD".index(seq[i]), "ABCD".index(target[i])
+        perm = [1, 2, 3, 4]
+        perm[a], perm[b] = perm[b], perm[a]
+        plan.append((no, seq[i], target[i], perm))
+    return plan
+
+
+def print_balance(recs: list, ch_offset: int = 0) -> None:
+    """打印均衡方案（供写回清单「选项序」）。"""
+    plan = balance_options(recs)
+    if not plan:
+        return
+    print(f"     → 均衡方案：{len(plan)} 题需重排（在清单对应项下加「选项序」即可，答案自动换算）")
+    for no, old, new, perm in plan:
+        print(f"        第 {no} 题　{old} → {new}　选项序: [{' , '.join(map(str, perm))}]")
+
+
+# ============================================================================
+# 五之四、命题说明 Word
+# ============================================================================
+
+def render_spec_docx(man: dict, recs: list, out: Path) -> None:
+    """命题说明 → Word（A4／宋体 12pt／固定行距 24pt／表内 10.5pt）。"""
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+    from docx.oxml.ns import qn
+    from docx.shared import Mm, Pt
+
+    lines = spec_lines(man, recs)
+    doc = Document()
+    s = doc.sections[0]
+    s.page_width, s.page_height = Mm(210), Mm(297)
+    s.left_margin = s.right_margin = Mm(21)
+    s.top_margin = s.bottom_margin = Mm(25)
+
+    def sty(run, size, bold, font="宋体"):
+        run.font.size = Pt(size)
+        run.bold = bold
+        run.font.name = font
+        run._element.rPr.rFonts.set(qn("w:eastAsia"), font)
+
+    def add_para(text, size=12, bold=False, align=None, line=24):
+        p = doc.add_paragraph()
+        pf = p.paragraph_format
+        pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+        pf.line_spacing = Pt(line)
+        pf.space_before = Pt(0)
+        pf.space_after = Pt(0)
+        if align is not None:
+            p.alignment = align
+        if text:
+            sty(p.add_run(text), size, bold)
+        return p
+
+    def add_table(rows):
+        t = doc.add_table(rows=len(rows), cols=len(rows[0]))
+        t.style = "Table Grid"
+        for ri, row in enumerate(rows):
+            for ci, val in enumerate(row[:len(rows[0])]):
+                cell = t.cell(ri, ci)
+                cell.text = ""
+                p = cell.paragraphs[0]
+                pf = p.paragraph_format
+                pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+                pf.line_spacing = Pt(20)            # 辅文 10.5pt 需行距 ≥20pt（GB 40070-2021）
+                pf.space_before = Pt(0)
+                pf.space_after = Pt(0)
+                sty(p.add_run(val), 10.5, ri == 0)
+
+    i = 0
+    while i < len(lines):
+        ln = lines[i].rstrip()
+        if not ln:
+            i += 1
+            continue
+        if ln.startswith("|"):
+            rows = []
+            while i < len(lines) and lines[i].startswith("|"):
+                cells = [c.strip() for c in lines[i].strip().strip("|").split("|")]
+                if not all(re.fullmatch(r":?-{2,}:?", c) for c in cells):
+                    rows.append(cells)
+                i += 1
+            if rows:
+                add_table(rows)
+            continue
+        if ln.startswith("# "):
+            add_para(ln[2:], 15, True, WD_ALIGN_PARAGRAPH.CENTER, 28)
+        elif ln.startswith("## "):
+            add_para(ln[3:], 14, True, WD_ALIGN_PARAGRAPH.CENTER, 26)
+        elif ln.startswith("### "):
+            add_para(ln[4:], 12, True, None, 24)
+        elif ln.startswith("**") and ln.rstrip().endswith("**") and ln.count("**") == 2:
+            add_para(ln.strip().strip("*"), 12, True)
+        else:
+            add_para(ln, 12)
+        i += 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(out))
 
 
 # ============================================================================
@@ -1113,7 +1635,7 @@ def render_docx(man: dict, recs: list, mode: str, out: Path,
                 para(doc, size=1, line=max(2.0, need), after=0)
         para(doc, size=12, line=12, after=0)
 
-    # 答案卷：分页另起
+    # 答案卷：分页另起（v4：命题说明已独立成文档，本分支不再触达，保留供复用）
     if mode == "教师":
         doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
         centered(f"{man.get('卷名', '')}　参考答案", 14, True, before=0, after=6)
@@ -1361,8 +1883,8 @@ def checkup(man: dict, recs: list) -> None:
     total = sum(int(r["分值"]) for r in recs if str(r["分值"]).isdigit())
     ttypes = Counter(str(r["fm"].get("题型", "?")) for r in recs)
     diff = Counter(str(r["fm"].get("难度", "?")) for r in recs)
-    ch = [r for r in recs if str(r["fm"].get("题型", "")).strip() == "选择题"]
-    ans = Counter(str(r["fm"].get("答案", "")).strip() for r in ch)
+    ch = [r for r in recs if is_choice(r)]
+    ans = Counter(effective_answer(r) for r in ch)
     ans = Counter({k: v for k, v in ans.items() if k in ("A", "B", "C", "D")})
     vols = Counter(r["vol"] for r in recs)
     books = Counter(b for r in recs for b in as_list(r["fm"].get("册别")))
@@ -1403,18 +1925,23 @@ def checkup(man: dict, recs: list) -> None:
     if head_slot:
         print(f"     ⚠ {len(head_slot)} 道题的作答括号自动补在**非末行**（设问在材料之前），"
               f"成卷前请核对：第 {'、'.join(map(str, head_slot))} 题")
-    seq = [str(r["fm"].get("答案", "")).strip() for r in ch]
+    seq = [effective_answer(r) for r in ch]
     run_same, run_start, prev = 1, 0, (seq[0] if seq else "")
     for i in range(1, len(seq)):
         if seq[i] and seq[i] == prev:
             run_same += 1
         else:
-            if run_same >= 4:
+            if run_same >= 3:
                 print(f"     ⚠ 选择题第 {run_start + 1}—{i} 题答案连续同为 {prev}")
             run_same, run_start = 1, i
         prev = seq[i]
-    if run_same >= 4:
+    if run_same >= 3:
         print(f"     ⚠ 选择题第 {run_start + 1}—{len(seq)} 题答案连续同为 {prev}")
+    if ans:
+        spread = max(ans.values()) - min(ans.values()) if len(ans) > 1 else 0
+        if spread > max(1, len(ch) * 0.15):
+            print(f"     → 分布偏斜（极差 {spread}）；可按下列方案加「选项序」，或直接跑 `--均衡选项`")
+            print_balance(recs)
 
 
 # ============================================================================
@@ -1526,8 +2053,12 @@ def export_by_volume(args) -> int:
     if total == 0:
         print("[失败] 未选到任何题目", file=sys.stderr)
         return 1
+    if args.模式 == "命题说明":
+        print("[失败] 命题说明须用清单驱动：--清单 <组卷清单.yaml> --模式 命题说明",
+              file=sys.stderr)
+        return 1
     out = Path(args.输出) if args.输出 else (
-        units[0][1] / f"{units[0][1].name}_{'教师' if args.模式 == '教师' else '学生'}版.md")
+        units[0][1] / f"{units[0][1].name}_学生版.md")
     blocks = []
     for vol, _d, files in units:
         for p in files:
@@ -1536,14 +2067,8 @@ def export_by_volume(args) -> int:
             if not body:
                 continue
             body = rewrite_img(body, vol, ns=multi)   # 单卷不加命名空间；多形态引用统一转标准 md 形态
-            if args.模式 == "教师":
-                tail = f"\n\n**答案**：{fm.get('答案', '')}"
-                jx = str(fm.get("解析", "") or "").strip()
-                if jx:
-                    tail += f"\n**解析**：{jx}"
-                if args.来源标注:
-                    tail += f"\n\n**来源**：{vol}（原第 {p.stem} 题）"
-                body += tail
+            if args.来源标注:
+                body += f"\n\n**来源**：{vol}（原第 {p.stem} 题）"
             blocks.append(body)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n\n---\n\n".join(blocks) + "\n", encoding="utf-8")
@@ -1555,7 +2080,7 @@ def export_by_volume(args) -> int:
                 p.read_text(encoding="utf-8"), p.parent, img_dir)
     if n_img:
         print(f"[图片] 已打包 {n_img} 张")
-    print(f"[导出] {out}（{len(blocks)} 题，{args.模式}版）")
+    print(f"[导出] {out}（{len(blocks)} 题，学生卷）")
     for vol, _d, files in units:
         print(f"  · {vol}：{len(files)} 题 → " + "、".join(p.stem for p in files))
     return 0
@@ -1573,10 +2098,13 @@ def main():
     ap.add_argument("--学段", choices=["初中", "高中"])
     ap.add_argument("--类别", choices=["中考真题", "中考模拟题", "阶段测试", "高考真题", "高考模拟题"])
     ap.add_argument("--题型")
-    ap.add_argument("--模式", choices=["学生", "教师"], default="学生")
+    ap.add_argument("--模式", choices=["学生", "命题说明"], default="学生",
+                    help="学生=干净学生卷（默认）；命题说明=题目来源与考察角度"
+                         "（内部资料：卷面结构／单元配比／能力维度／难度与答案分布／"
+                         "命题细目表／参考答案／组卷处理说明）")
     ap.add_argument("--输出")
     ap.add_argument("--排序", choices=["路径", "id"], default="id")
-    ap.add_argument("--来源标注", action="store_true", help="[兼容] 教师卷附原卷来源")
+    ap.add_argument("--来源标注", action="store_true", help="[兼容] 命题说明附原卷来源（现恒附）")
     ap.add_argument("--标来源", action="store_true",
                     help="学生卷在末行附来源括注（近5年中考真题等）")
     ap.add_argument("--docx", help="另出 Word 卷到该路径")
@@ -1594,6 +2122,8 @@ def main():
                     help="独立=单独答题卡文件（默认，月考/期中期末）；"
                          "卷末=答题区附在学生卷 docx 末尾（小测试/周测，不出独立文件）")
     ap.add_argument("--体检", action="store_true", help="只打印卷面体检，不导出")
+    ap.add_argument("--均衡选项", action="store_true",
+                    help="打印答案分布均衡方案（各题应设的「选项序」），写回清单后重出即生效")
     args = ap.parse_args()
 
     if not args.清单:
@@ -1615,40 +2145,57 @@ def main():
     print(f"[清单] {len(recs)} 题已定位" + (f"，{len(miss)} 题未定位" if miss else ""))
 
     checkup(man, recs)
+    if args.均衡选项:
+        plan = balance_options(recs)
+        if not plan:
+            print("\n[均衡] 选择题答案分布已均衡，无需重排")
+        else:
+            print(f"\n[均衡] 建议对 {len(plan)} 题重排"
+                  f"（在清单对应项下加「选项序」，答案自动换算）：")
+            for no, old, new, perm in plan:
+                print(f"        第 {no} 题\u3000{old} → {new}"
+                      f"\u3000选项序: [{', '.join(map(str, perm))}]")
+        return 0
     if args.体检:
         return 0
 
+    is_spec = args.模式 == "命题说明"
     vol_title = man.get("卷名") or "组卷"
     out = Path(args.输出) if args.输出 else None
     if out is None:
         base = Path(args.清单).parent
-        out = base / f"{vol_title}_{'教师' if args.模式 == '教师' else '学生'}版.md"
-    # 图片：md 与 docx 各自所在目录都要有（两者目录可能不同）
-    targets = {out.parent}
-    if args.docx:
-        targets.add(Path(args.docx).parent)
-    n_img = 0
-    for t in targets:
-        n_img += bundle_images(recs, t)
-    if n_img:
-        print(f"[图片] 已打包 {n_img} 张 → "
-              + "；".join(str(t / 'images') for t in targets))
+        out = base / (f"{vol_title}_命题说明.md" if is_spec else f"{vol_title}_学生版.md")
+    # 图片：md 与 docx 各自所在目录都要有（两者目录可能不同）；命题说明纯文字，不打包
+    if not is_spec:
+        targets = {out.parent}
+        if args.docx:
+            targets.add(Path(args.docx).parent)
+        n_img = 0
+        for t in targets:
+            n_img += bundle_images(recs, t)
+        if n_img:
+            print(f"[图片] 已打包 {n_img} 张 → "
+                  + "；".join(str(t / 'images') for t in targets))
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_md(man, recs, args.模式, args.标来源), encoding="utf-8")
-    print(f"[导出] {out}（{len(recs)} 题，{args.模式}版 md）")
+    if is_spec:
+        out.write_text("\n".join(spec_lines(man, recs)).rstrip() + "\n", encoding="utf-8")
+    else:
+        out.write_text(render_md(man, recs, args.模式, args.标来源), encoding="utf-8")
+    print(f"[导出] {out}（{len(recs)} 题，{args.模式}）")
 
-    inline = args.答题卡位置 == "卷末"
+    inline = args.答题卡位置 == "卷末" and not is_spec
     if args.docx:
         dx = Path(args.docx)
-        render_docx(man, recs, args.模式, dx, args.标来源, args.图片宽, args.图靠右,
-                    card_inline=(inline and args.模式 == "学生"),
-                    card_per_row=args.答题卡每行, card_blanks=args.答题卡行数)
-        print(f"[导出] {dx}（{len(recs)} 题，{args.模式}版 docx）")
-        if inline and args.模式 != "学生":
-            print("  · 答题区附卷末仅对学生卷生效，教师卷已跳过")
+        if is_spec:
+            render_spec_docx(man, recs, dx)
+        else:
+            render_docx(man, recs, args.模式, dx, args.标来源, args.图片宽, args.图靠右,
+                        card_inline=inline,
+                        card_per_row=args.答题卡每行, card_blanks=args.答题卡行数)
+        print(f"[导出] {dx}（{len(recs)} 题，{args.模式}）")
 
     card = Path(args.答题卡) if args.答题卡 else None
-    if card is None and args.docx and not args.无答题卡 and not inline:
+    if card is None and args.docx and not args.无答题卡 and not inline and not is_spec:
         card = Path(args.docx).parent / f"{vol_title}_答题卡.docx"
     if card:
         render_answer_card(man, recs, card, args.答题卡每行, args.答题卡行数)
