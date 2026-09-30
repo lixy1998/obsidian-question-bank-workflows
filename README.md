@@ -25,58 +25,74 @@
 ## 目录结构
 
 ```
-Obsidian历史题库搭建与组卷/
-├── SKILL.md                    # 技能主文档（按场景分文件加载的入口）
-├── README.md
-├── requirements.txt            # Python 依赖（核心 pyyaml + 可选 docx/pymupdf/numpy/cv2/Pillow）
-├── LOCAL-PATCH.md              # 本地改造记录（每条含根因 / 改法 / 回归证据）
-├── LICENSE                     # CC BY-NC-SA 4.0
-├── templates/
-│   ├── 历史试题模板.md           # 单题模板（初始化时复制到 vault）
-│   ├── 试题研究笔记.md           # A 档：单题/单卷研究
-│   ├── 试题报告笔记.md           # B 档：课/单元/专题/册别报告
-│   └── 组卷清单.yaml            # 组卷清单模板
-├── workflow/
-│   ├── 00-init.md              # 首次使用引导
-│   ├── 01-input.md             # 流程一 录入（含查重与合并）
-│   ├── 02-compose.md           # 流程二 组卷/出题（含版式合规自检）
-│   ├── 03-check.md             # 流程三 校验与词表维护（含定位字段/多值配对提示）
-│   ├── 04-angle-analysis.md    # 流程四 多维度考查方向分析
-│   └── 05-range-analysis.md    # 流程五 册别/学段考试范围分析
-├── references/
-│   ├── fields.md               # 字段详解 + JSON 模板 + 卷名命名约定 + 多值录入判据 + 一题多卷与去重
-│   ├── book_index.md           # BOOK_INDEX 结构与维护（含单元层级与修订联动）
-│   ├── 素养能力词表.md           # 素养/层次水平/能力受控词表（唯一权威）
-│   ├── 试卷排版规范.md           # 成卷版式（国标合规层 + 原卷惯例层 + 图文混排）
-│   ├── 标准-试卷排版依据.md       # 标准依据（强制/推荐/惯例三档 + 河南中考实测）
-│   ├── 试卷版式核验矩阵.md        # 条款 ↔ 依据 ↔ 实现 ↔ 核验方式
-│   ├── 参考-图片与图注修复.md      # 录入链路图片问题修复（图注丢失/空 alt/孤儿图）
-│   └── 分析基线-洛阳.md          # 实测对照基线（课次热度/卷面结构/分值口径）
-└── scripts/
-    ├── qb_schema.py            # 公共模块：词表（课名+单元层级）+ 路径规则 + 校验 + 权威序
-    ├── qb_bootstrap.py         # 启动引导：依赖预检 / 管道 UTF-8 / vault 定位
-    ├── setup.py                # 首次配置引导（写入 vault 配置 + 建库）
-    ├── gen_problem.py          # JSON → 单题 md
-    ├── scan_questions.py       # 全库校验（必填/枚举/课名/正文/id 多值/定位字段/多值配对提示）
-    ├── dedupe_questions.py     # 查重 + 一题多卷合并（scan/check/merge/rollback）
-    ├── export_student_paper.py # 组卷导出 CLI（清单驱动 → md/Word 卷 + 答题卡 + 命题说明 + 卷面体检）
-    ├── paperkit/               # 组卷导出的内部模块包（12 个模块，见下）
-    ├── backtrace_paper.py      # 从成品卷反查题库 id、还原组卷清单
-    ├── verify_paper_layout.py  # 试卷版式校验器（docx 字号行距 / 卷结构层）
-    ├── verify_against_source.py # 录入后回归自检（入库正文 ↔ 源文本逐题比对，支持单文件多卷）
-    ├── check_note_links.py     # 笔记引用体检（断链 / 指向 .trash 的不合规引用，可改指主卷）
-    ├── linkify_citations.py    # 报告补链（出处表述 → 库内 wikilink，默认只读）
-    ├── gen_index.py            # 由 BOOK_INDEX 生成试题索引（初中 6 册 + 高中 7 册 = 13 册）
-    ├── read_docx.py            # docx 结构化提取（免 MinerU）
-    ├── pull_pdf_images.py      # 从官方 PDF 裁剪补图（输出格式守卫：TIFF 自动转 PNG）
-    ├── fix_image_formats.py    # 图片格式巡检修复（不可显示格式 → jpg/png，同步改引用，原图入回收站）
-    ├── fix_arabic_numerals.py  # 中文数字 → 阿拉伯数字批量转换
-    ├── scan_lesson.py          # 流程四：按课/单元/专题取题统计（--口径 主考/兼涉/全涉）
-    ├── scan_missed.py          # 流程四：关键词反查（正文含词但未标该课）
-    ├── scan_volume.py          # 流程五：册别/卷别聚合（范围判定 + 课次热度三梯队）
-    └── BOOK_INDEX.md           # 课名受控词表（初中六册 7上~9下 + 高中纲要/选必 + 选修1-2 两模块共 14 专题）
-└── tests/
-    └── test_qb.py              # 离线回归（35 条）：临时题库自建，不碰真库
+Obsidian历史题库搭建与组卷/          # 仓库工作区：D:\WorkDaily-工作\...\obsidian-question-bank-workflows
+├── SKILL.md                      # 技能主文档（按场景分文件加载的入口）
+├── README.md                     # 本文件
+├── requirements.txt              # Python 依赖（核心 pyyaml + 可选 docx/pymupdf/numpy/cv2/Pillow）
+├── LOCAL-PATCH.md                # 本地改造记录（每条含根因 / 改法 / 回归证据）
+├── LICENSE                       # CC BY-NC-SA 4.0
+├── .gitignore                    # 忽略 __pycache__ / *.bak-* / 测试临时目录 / skill_config.json
+├── scripts/                      # 可执行脚本（扁平：每个 .py 都是可逐条调用的入口）
+│   ├── qb_schema.py              # 公共模块：词表（课名+单元层级）+ 路径规则 + 校验 + 权威序
+│   ├── qb_bootstrap.py           # 启动引导：依赖预检 / 管道 UTF-8 / vault 定位
+│   ├── setup.py                  # 首次配置引导（写入 vault 配置 + 建库）
+│   ├── gen_problem.py            # JSON → 单题 md
+│   ├── scan_questions.py         # 全库校验（必填/枚举/课名/正文/id 多值/定位字段/多值配对提示）
+│   ├── dedupe_questions.py       # 查重 + 一题多卷合并（scan/check/merge/rollback）
+│   ├── export_student_paper.py   # 组卷导出 CLI（清单驱动 → md/Word 卷 + 答题卡 + 命题说明 + 卷面体检）
+│   ├── backtrace_paper.py        # 从成品卷反查题库 id、还原组卷清单
+│   ├── verify_paper_layout.py    # 试卷版式校验器（docx 字号行距 / 卷结构层）
+│   ├── verify_against_source.py  # 录入后回归自检（入库正文 ↔ 源文本逐题比对，支持单文件多卷）
+│   ├── check_note_links.py       # 笔记引用体检（断链 / 指向 .trash 的不合规引用，可改指主卷）
+│   ├── linkify_citations.py      # 报告补链（出处表述 → 库内 wikilink，默认只读）
+│   ├── gen_index.py              # 由 BOOK_INDEX 生成试题索引（初中 6 册 + 高中 7 册 = 13 册）
+│   ├── read_docx.py              # docx 结构化提取（免 MinerU；只接 .docx）
+│   ├── pull_pdf_images.py        # 从官方 PDF 裁剪补图（输出格式守卫：TIFF 自动转 PNG）
+│   ├── fix_image_formats.py      # 图片格式巡检修复（不可显示格式 → jpg/png，同步改引用，原图入回收站）
+│   ├── fix_arabic_numerals.py    # 中文数字 → 阿拉伯数字批量转换
+│   ├── scan_lesson.py            # 流程四：按课/单元/专题取题统计（--口径 主考/兼涉/全涉）
+│   ├── scan_missed.py            # 流程四：关键词反查（正文含词但未标该课）
+│   ├── scan_volume.py            # 流程五：册别/卷别聚合（范围判定 + 课次热度三梯队）
+│   ├── BOOK_INDEX.md             # 课名受控词表（初中六册 + 高中纲要/选必 + 选修1-2 共 14 专题）
+│   ├── skill_config.json         # 本机 vault 路径（引导写入；已 gitignore，不随分发）
+│   └── paperkit/                 # 组卷导出的内部模块（仅供 export_student_paper.py 使用）
+│       ├── paths.py              # 题库索引、卷名/题号规范化
+│       ├── manifest.py           # 清单加载 / 条目归一 / 题号定位
+│       ├── images.py             # 五类图片引用识别、打包、改写
+│       ├── markup.py             # 文本净化、表格/图片摘除、选项拆分
+│       ├── slots.py              # 作答空位、选项重排
+│       ├── sections.py           # 题型判定、分值、大题标题、分节标记
+│       ├── spec.py               # 命题说明数据加工
+│       ├── md_render.py          # md 学生卷 / 教师卷渲染
+│       ├── balance.py            # 答案分布诊断与均衡
+│       ├── checkup.py            # 卷面体检
+│       ├── docx_kit.py           # Word 布局常量 + 图片装箱计算
+│       └── __init__.py           # 包说明与依赖方向
+├── workflow/                     # 流程文件（按场景加载）
+│   ├── 00-init.md                # 首次使用引导
+│   ├── 01-input.md               # 流程一 录入（含查重与合并）
+│   ├── 02-compose.md             # 流程二 组卷/出题（含版式合规自检）
+│   ├── 03-check.md               # 流程三 校验与词表维护（含定位字段/多值配对提示）
+│   ├── 04-angle-analysis.md      # 流程四 多维度考查方向分析
+│   └── 05-range-analysis.md      # 流程五 册别/学段考试范围分析
+├── references/                   # 参考文档（字段 / 词表 / 版式 / 基线）
+│   ├── fields.md                 # 字段详解 + JSON 模板 + 卷名命名约定 + 多值录入判据 + 一题多卷与去重
+│   ├── book_index.md             # BOOK_INDEX 结构与维护（含单元层级与修订联动）
+│   ├── 素养能力词表.md             # 素养/层次水平/能力受控词表（唯一权威）
+│   ├── 试卷排版规范.md             # 成卷版式（国标合规层 + 原卷惯例层 + 图文混排）
+│   ├── 标准-试卷排版依据.md         # 标准依据（强制/推荐/惯例三档 + 河南中考实测）
+│   ├── 试卷版式核验矩阵.md          # 条款 ↔ 依据 ↔ 实现 ↔ 核验方式
+│   ├── 参考-图片与图注修复.md        # 录入链路图片问题修复（图注丢失/空 alt/孤儿图）
+│   └── 分析基线-洛阳.md            # 实测对照基线（课次热度/卷面结构/分值口径）
+├── templates/                    # 模板（初始化时复制到 vault）
+│   ├── 历史试题模板.md             # 单题模板
+│   ├── 试题研究笔记.md             # A 档：单题/单卷研究
+│   ├── 试题报告笔记.md             # B 档：课/单元/专题/册别报告
+│   └── 组卷清单.yaml              # 组卷清单模板
+└── tests/                        # 离线回归测试（自建临时题库，不碰真库）
+    ├── test_qb.py                # 51 条用例：字段/词表、题目文件判定、录入→校验→出卷→反查、13 册索引、docx 版式
+    ├── _snapshot.py              # 基线工具：出 6 个产物并逐部件比对 docx（拆分/重构时用）
+    └── _baseline.json            # 上述工具的基线记录（随仓库保留）
 ```
 
 ## 快速开始

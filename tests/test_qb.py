@@ -634,5 +634,64 @@ class TestIndexGeneration(unittest.TestCase):
             self.assertNotIn("## 附录", text, "%s 里出现了附录节" % name)
 
 
+class TestReadmeTree(unittest.TestCase):
+    """README 的「目录结构」树必须与真实文件树一致（防文档漂移）。
+
+    历史问题：该树曾把 `tests/` 画成 `└──`（看着像 scripts/ 的子目录，实际两者平级）、
+    `paperkit/` 是 12 个模块却只列了一行、`_snapshot.py`/`_baseline.json`/`.gitignore`
+    从未登记、`test_qb.py` 的用例数停在 35（实际 51）。
+    """
+
+    README = SKILL / "README.md"
+
+    def _tree_entries(self):
+        text = self.README.read_text(encoding="utf-8")
+        m = re.search(r"## 目录结构\n\n```\n(.*?)```", text, re.S)
+        self.assertIsNotNone(m, "README 里找不到「目录结构」代码块")
+        entries = []
+        for line in m.group(1).splitlines()[1:]:        # 跳过根目录名那一行
+            body = re.sub(r"^[│├└─\s]+", "", line).split("#")[0].strip()
+            if body:
+                entries.append(body)
+        return entries
+
+    def _actual_entries(self):
+        skip = {"__pycache__", "_tmp", "_snap", "_dbg", "_dbg2", "_audit_tmp",
+                "_acl-recovery", ".git"}
+        return {str(p.relative_to(SKILL)).replace("\\", "/")
+                for p in SKILL.rglob("*") if not any(s in p.parts for s in skip)}
+
+    def test_树里列出的条目都存在(self):
+        actual = self._actual_entries()
+        leaves = {a.split("/")[-1] for a in actual}
+        dirs = {a.split("/")[-1] for a in actual}
+        missing = []
+        for e in self._tree_entries():
+            name = e.rstrip("/")
+            pool = dirs if e.endswith("/") else leaves
+            if name not in pool:
+                missing.append(e)
+        self.assertEqual(missing, [], "README 目录树列了磁盘上没有的条目：%s" % missing)
+
+    def test_真实条目都在树里(self):
+        entries = {e.rstrip("/") for e in self._tree_entries()}
+        untold = sorted(a for a in self._actual_entries()
+                        if a.split("/")[-1] not in entries)
+        self.assertEqual(untold, [],
+                         "磁盘上有、但 README 目录树未登记的条目：%s" % untold)
+
+    def test_顶层目录连接符正确(self):
+        """非末位的顶层目录要用 ├──，末位用 └──（曾把 tests/ 画成 └── 而它后面还有内容）。"""
+        text = self.README.read_text(encoding="utf-8")
+        m = re.search(r"## 目录结构\n\n```\n(.*?)```", text, re.S)
+        lines = m.group(1).splitlines()
+        top = [l for l in lines[1:] if l and not l[0].isspace() and l[0] in "├└"]
+        self.assertTrue(top, "没解析出顶层条目")
+        self.assertTrue(top[0].startswith("├──"), "首个顶层条目应为 ├──：%s" % top[0][:20])
+        for l in top[:-1]:
+            self.assertTrue(l.startswith("├──"), "非末位顶层条目应为 ├──：%s" % l[:24])
+        self.assertTrue(top[-1].startswith("└──"), "末位顶层条目应为 └──：%s" % top[-1][:24])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
