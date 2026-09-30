@@ -46,6 +46,19 @@ TMP_ROOT = HERE / "_tmp"
 PY = sys.executable
 
 
+def sub_env(vault=None):
+    """子进程环境：强制 UTF-8，保证测试不依赖调用方的 shell 编码设置。
+
+    脚本在**管道输出**时会自切 UTF-8，但如果调用方 shell 已设 PYTHONIOENCODING=gbk 或
+    其他值，子进程会沿用而与本测试的 `encoding="utf-8"` 解码冲突。这里显式钉死，
+    测试结果才与运行环境无关。
+    """
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    if vault is not None:
+        env["TNOTE_VAULT"] = str(vault)
+    return env
+
+
 def q(序号="01", 题型="选择题", **over):
     """构造一条最小合法题目记录（可覆盖任意字段）。"""
     rec = {
@@ -89,7 +102,7 @@ class TempVaultMixin:
         tmpjson.write_text(json.dumps([rec], ensure_ascii=False), encoding="utf-8")
         r = subprocess.run([PY, str(SCRIPTS / "gen_problem.py"), str(tmpjson)],
                            capture_output=True, text=True, encoding="utf-8",
-                           env={**os.environ, "TNOTE_VAULT": str(self.vault)})
+                           env=sub_env(self.vault))
         self.assertEqual(r.returncode, 0, "gen_problem 失败：%s\n%s" % (r.stdout, r.stderr))
         tmpjson.unlink(missing_ok=True)
         d = (self.vault / f"{rec['学段']}-{rec['类别']}" / rec["卷名"]
@@ -102,7 +115,7 @@ class TempVaultMixin:
         r = subprocess.run([PY, str(SCRIPTS / script), *args],
                            capture_output=True, text=True, encoding="utf-8",
                            cwd=str(cwd or SCRIPTS),
-                           env={**os.environ, "TNOTE_VAULT": str(self.vault)})
+                           env=sub_env(self.vault))
         if expect is not None:
             self.assertEqual(r.returncode, expect,
                              "%s 退出码 %s ≠ %s\nstdout=%s\nstderr=%s"
@@ -355,7 +368,7 @@ class TestScriptsHealth(unittest.TestCase):
 
     def test_未配置vault时_help仍可用(self):
         """无配置时 --help 必须仍可用（历史回归点：qb_schema 在导入期求值 vault）。"""
-        env = {k: v for k, v in os.environ.items() if k != "TNOTE_VAULT"}
+        env = sub_env()
         env["TNOTE_VAULT"] = ""          # 置空＝未配置（空串为假值）
         for name in ("scan_questions.py", "scan_lesson.py", "scan_volume.py",
                      "linkify_citations.py", "check_note_links.py"):
