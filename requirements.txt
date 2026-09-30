@@ -1,0 +1,18 @@
+# Obsidian历史题库搭建与组卷 — Python 依赖
+#
+# 安装：pip install -r requirements.txt
+#   （受管环境通常已装齐：<受管 venv>/python.exe 可直接跑全部脚本；
+#     系统 Python 常见只装了 python-docx，缺 pyyaml 会让核心流程直接崩）
+#
+# 校验：python scripts/scan_questions.py --help   # 应打印用法而非缺依赖报错
+
+# ---- 核心（缺了核心流程跑不了，必装）----
+pyyaml>=6.0            # YAML frontmatter 解析：qb_schema / scan / gen / export 全靠它
+
+# ---- 可选：按链路需要装 ----
+python-docx>=1.1       # 链路B：docx 直读（read_docx.py）、Word 卷导出（export_student_paper.py --docx）
+pymupdf>=1.24          # PDF 裁剪补图（pull_pdf_images.py）
+python-pptx>=0.6       # PPT 提取（链路B 备选）
+numpy>=1.24            # 图片像素处理（fix_image_formats.py）
+opencv-python>=4.8     # 图片格式转换读图（fix_image_formats.py；含 TIFF 兜底读取）
+Pillow>=10.0           # 图片保存与 dpi 读写（fix_image_formats.py）

@@ -3,6 +3,11 @@ __pycache__/
 *.pyc
 *.pyo
 
+# 历史版本备份（要留版本请用 git，不要堆 .bak 在 scripts/ 里）
+*.bak
+*.bak-*
+_audit_tmp/
+
 # 本机配置（首次使用引导写入，含个人 vault 路径，绝不随仓库发布）
 scripts/skill_config.json
 
