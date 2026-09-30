@@ -48,7 +48,7 @@ author: 教历史的史知行
 
 - **过程性数据文件（一次性题库 JSON、临时生成脚本、图片缓存、中间产物等）严禁放入 skill 目录**——`scripts/` 只保留随 skill 分发的可复用脚本与 BOOK_INDEX 词表；`templates/` 只放模板；`references/` 只放参考文档；`workflow/` 只放流程文件
 - 题库录入的中间 JSON / 一次性 gen 脚本在题目入库（gen + scan 完成）后，**归档到工作区或删除**，不得留在 skill 内
-- **同一条规矩适用于 `__pycache__/` 与 `*.bak-*` 备份**：留版本用 git（仓库在 `D:\WorkDaily-工作\01-当前工作\VibeCoding\项目\obsidian-question-bank-workflows`，本目录只放 skill 本体），不要堆 `.bak-YYYYMMDD` 在 `scripts/` 里
+- **同一条规矩适用于 `__pycache__/` 与 `*.bak-*` 备份**：留版本用 git，**不得堆备份文件在 `scripts/` 内**（本目录只放 skill 本体）
 - **`scripts/` 保持平铺**：每个 `.py` 都是可被逐条调用的入口（`python scripts/<脚本>.py`），**不要为"整齐"再建子目录**——那会同时打断 `from qb_schema import …` 与 195 处文档引用（其中 65 处带 `scripts/` 路径前缀）。只有「单一入口 + 内部多文件」才建包（如 `paperkit/`，仅供 `export_student_paper.py` 使用）
 - **新增脚本须同步登记两处**：① 本文件「脚本清单」（脚本名 + 用途 + 何时用）；② `tests/test_qb.py` 的 `CLI_SCRIPTS` —— 测试会断言清单与 `scripts/*.py` 完全一致，漏登记直接失败
 
