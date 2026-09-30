@@ -13,6 +13,45 @@
 
 ---
 
+---
+
+## 2026-09-30 · 📄 PPT 口径纠正 + 脚本清单补「何时用」+ 目录登记规则
+
+**缘起**：整体复检发现「PPT 直读」是**空头承诺**——README/01-input/00-init 与
+`requirements.txt` 都声称支持 PPT 提取，但实测 `read_docx.py` 只接 `.docx` 一个位置参数、
+全库 `import pptx` **命中 0**。用户裁定：**改文档，不补实现**。
+
+**改动**
+
+1. **口径改为「需自行提取」**：
+   - `README.md`：双链路说明与 FAQ 明确「PPT/pptx 不提供内置脚本，需先转 docx/PDF 或自写提取代码」，新增一条 FAQ
+   - `workflow/01-input.md`：链路B 分流图标注「PPT 先转 docx 或 PDF」；第 1 步把原来的
+     `python-pptx 提取…` 操作说明改为 ⚠ 提示（该说明保留为**自行实现时**的技术参考）
+   - `workflow/00-init.md`：依赖清单去掉 `python-pptx`，并列明 PPT 无内置脚本
+   - `requirements.txt`：**删除 `python-pptx>=0.6` 声明**（代码从不 import，留着会误导）
+   - `SKILL.md`：Python 依赖行与 References 同步；`read_docx.py` 行标注「只接 `.docx`」
+2. **顺带修掉两处易误读/失效引用**：
+   - `01-input.md` 里 MinerU 的「支持 PDF/图片/Word/PPT/网页」补注「**这是 MinerU 的能力**，非本 skill 内置」
+   - `04-angle-analysis.md` 原写「生成 PPT（走 `tencent-pptx`）」——**该技能名不存在**（本机实为
+     `ppt-master` / `guizang-ppt-skill` / `pptx-slide-clone`），改为「交由 **PPT 生成类技能**（如 `ppt-master` / `guizang-ppt-skill`）」
+   - `references/book_index.md` 的「已校验出并修正的映射（2026-08-22，**fix_2025_mapping.py** 18 处）」
+     指向已不存在的一次性脚本 → 改为「共 18 处」
+3. **`SKILL.md` 脚本清单加第三列「何时用」**（20 行全部补齐）：从「这是什么」升级为
+   「什么现象/什么目标 → 跑哪个脚本」，20 个平铺脚本不必靠记忆。
+4. **目录规范新增两条硬规则**（回应「scripts 是否该建子文件夹」）：
+   - **`scripts/` 保持平铺**：每个 `.py` 都是可逐条调用的入口，建子目录会同时打断
+     `from qb_schema import …` 与 195 处文档引用（65 处带 `scripts/` 路径前缀）；
+     只有「单一入口 + 内部多文件」才建包（`paperkit/` 即此形态）
+   - **新增脚本须登记两处**：`SKILL.md` 脚本清单 + `tests/test_qb.py` 的 `CLI_SCRIPTS`
+     （测试断言清单与 `scripts/*.py` 完全一致，漏登记直接失败）
+
+**说明**：`requirements.txt` 的删除与上面各文档口径**一次性对齐**；本文件 2026-09-30 早前那条
+P0 记录里仍写着「docx/pymupdf/pptx 可选」，属历史记录，不再回改。
+
+**验证**：51 条测试 OK；docx 基线 6 产物一致；`scan_questions.py` 退出码 0。
+
+---
+
 ## 2026-09-30 · 🧹 词表删除「附录 大事年表」条目（用户裁定：索引不需要）
 
 **缘起**：`gen_index.py` 补上高中 7 册后，`纲要上-试题索引.md` / `纲要下-试题索引.md`

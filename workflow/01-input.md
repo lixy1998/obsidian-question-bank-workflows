@@ -8,7 +8,8 @@
 
 ```
 扫描版 PDF/图片 ───────────> 链路A：MinerU vlm ──> 全项 OCR 核对 ──┐
-文字版文件（docx/PPT/md 等）─> 链路B：直读/脚本提取 ──> 轻量核对 ──┤
+文字版文件（docx/md 等）───> 链路B：直读/脚本提取 ──> 轻量核对 ──┤
+（PPT/pptx：先用外部工具转 docx 或 PDF，再走上面两条链路）        │
                                                                  ↓
                                         写 JSON ──> 查重预检 ──> gen ──> scan
                                                         │
@@ -22,7 +23,7 @@
    ```bash
    mineru-open-api extract "<文件或URL>" --model vlm -o "<输出目录>/" -f md
    ```
-   - 支持 PDF/图片/Word/PPT/网页；`-o` 必须绝对路径正斜杠（Git Bash 的 /tmp/ 等会卡死）
+   - 支持 PDF/图片/Word/PPT/网页（**这是 MinerU 的能力**，非本 skill 内置）；`-o` 必须绝对路径正斜杠（Git Bash 的 /tmp/ 等会卡死）
    - 输出 `<文档名>.md` + `images/` 同级；Token 在 `~/.mineru/config.yaml`；无 token 时改用链路B
 
 2. **人工核对 OCR**（必做，逐项对照源文件，7 项清单）：
@@ -37,14 +38,15 @@
    | 重复段落 | 24 题 (3) 设问重复一次，去重 |
    | 答案表 | 选择题答案表提取为 20 项映射 |
 
-## 链路B（文字版文件：docx/PPT/md 等，免 MinerU）
+## 链路B（文字版文件：docx/md 等，免 MinerU）
 
 有文字层、无需 OCR，核对降级；多来自第三方整理（zxls 等）或官方讲解件，须与官方扫描件交叉核对关键项；无扫描件时以文字版文件为唯一来源并在交付中注明。
 
 1. **结构化提取**（按格式选方法）：
    - **docx**：`python scripts/read_docx.py "<试卷.docx>" -o <输出目录>` → 生成 `<docx名>.md`（题号/题干/选项/表格/【答案】，按文档原顺序）+ `images/`（内嵌图片）
-   - **PPT/pptx**：python-pptx 提取文字（`shape.has_text_frame` / `shape.has_table`）+ 内嵌图片（`shape.shape_type == PICTURE`，`shape.image.blob` 存为 `images/img_{页}_{序号}.{ext}`）；图片逐张与题号核对归属，讲解页的「知识卡片/解析」、卷头等非原卷图**不入库**（参考录入郑州二七区卷经验）
    - **md/markdown**：直接读取正文（题号/题干/选项/表格已结构化），内嵌图片复制到 `images/`
+   - **PPT/pptx**：⚠ **本 skill 不提供 pptx 提取脚本**（`read_docx.py` 只接 `.docx`），需自行处理——可先另存/导出为 docx 或 PDF 走上面两条链路，或自行写提取代码（`python-pptx` 的 `shape.has_text_frame` / `shape.has_table` 取文字、`shape.shape_type == PICTURE` 取 `shape.image.blob`），提取结果按本流程后续步骤入库。图片逐张与题号核对归属，讲解页的「知识卡片/解析」、卷头等非原卷图**不入库**（参考录入郑州二七区卷经验）
+   - 其它文字版格式（如 wps/odt）：先转成 docx 或 md 再走对应链路
 2. **轻量核对**（4 项，替代 OCR 全项核对）：
 
    | 检查项 | 说明 |

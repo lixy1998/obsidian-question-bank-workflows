@@ -11,12 +11,12 @@
 3. **兼容通道（可选）**：环境变量 `TNOTE_VAULT` 优先级最高（Windows `setx TNOTE_VAULT "<你的vault路径>"`；macOS/Linux 写入 shell 配置）
 4. **Python 依赖**（2026-09-30 起统一声明在 `<skill>/requirements.txt`）：
    - 核心流程（写 JSON → gen → scan → export → 分析统计）只需 `pyyaml`
-   - 链路B 扩展（可选）：`python-docx`（docx 直读 / Word 卷导出）、`pymupdf`（PDF 补图）、`python-pptx`（PPT 提取）；图片修复另需 `numpy` / `opencv-python` / `Pillow`
+   - 链路B 扩展（可选）：`python-docx`（docx 直读 / Word 卷导出）、`pymupdf`（PDF 补图）；图片修复另需 `numpy` / `opencv-python` / `Pillow`。（**PPT/pptx 无内置脚本**：自行转 docx/PDF 或自写 `python-pptx` 提取代码）
    - **一条命令装齐**：`pip install -r <skill>/requirements.txt`（只装核心：`pip install pyyaml`）
    - **先探测解释器，再决定**：脚本会做依赖预检——缺包时打印「请安装依赖后重试」的中文提示并以退出码 3 结束，不再吐裸 traceback。**不要默认假设系统 `python` 已装 pyyaml**（实测常见只有 python-docx），受管环境一般有自带解释器（如 `~/.workbuddy/binaries/python/envs/default/python.exe`），可用它直接跑全部脚本
    - 输出编码：脚本在**管道输出**（AI 读取、重定向到文件）时自动切 UTF-8，避免 Windows 控制台 GBK 把 `--单元/--卷/--口径` 等中文参数显示成乱码；真实控制台保持系统编码不变
 5. **建库**：`--init` 自动建六类别目录 + 复制 `templates/` 下全部模板到 `{vault}/0-Template-模板/`（历史试题模板 + 试题研究笔记 + 试题报告笔记）；已建库的跳过
-6. **可选：MinerU 服务**（仅扫描版 PDF/图片需要，链路A）：安装 `mineru-open-api` CLI 并配置 token（`~/.mineru/config.yaml`）；文字版文件（docx/PPT/md）走链路B 免 MinerU
+6. **可选：MinerU 服务**（仅扫描版 PDF/图片需要，链路A）：安装 `mineru-open-api` CLI 并配置 token（`~/.mineru/config.yaml`）；文字版文件（docx/md）走链路B 免 MinerU
 
 > 脚本路径用 `<skill>/scripts/` 指代；在 skill 目录内执行时直接 `cd scripts && python …`。
 

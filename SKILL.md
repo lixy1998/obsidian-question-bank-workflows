@@ -49,31 +49,35 @@ author: 教历史的史知行
 - **过程性数据文件（一次性题库 JSON、临时生成脚本、图片缓存、中间产物等）严禁放入 skill 目录**——`scripts/` 只保留随 skill 分发的可复用脚本与 BOOK_INDEX 词表；`templates/` 只放模板；`references/` 只放参考文档；`workflow/` 只放流程文件
 - 题库录入的中间 JSON / 一次性 gen 脚本在题目入库（gen + scan 完成）后，**归档到工作区或删除**，不得留在 skill 内
 - **同一条规矩适用于 `__pycache__/` 与 `*.bak-*` 备份**：留版本用 git（仓库在 `D:\WorkDaily-工作\01-当前工作\VibeCoding\项目\obsidian-question-bank-workflows`，本目录只放 skill 本体），不要堆 `.bak-YYYYMMDD` 在 `scripts/` 里
+- **`scripts/` 保持平铺**：每个 `.py` 都是可被逐条调用的入口（`python scripts/<脚本>.py`），**不要为"整齐"再建子目录**——那会同时打断 `from qb_schema import …` 与 195 处文档引用（其中 65 处带 `scripts/` 路径前缀）。只有「单一入口 + 内部多文件」才建包（如 `paperkit/`，仅供 `export_student_paper.py` 使用）
+- **新增脚本须同步登记两处**：① 本文件「脚本清单」（脚本名 + 用途 + 何时用）；② `tests/test_qb.py` 的 `CLI_SCRIPTS` —— 测试会断言清单与 `scripts/*.py` 完全一致，漏登记直接失败
 
 ### 脚本清单
 
-| 脚本 | 用途 |
-|---|---|
-| `qb_schema.py` | 公共模块：受控词表（BOOK_INDEX 课名+单元层级+学史方法+高中选修专题）、路径规则、字段校验、`split_frontmatter`、权威序、`is_question_file`、惰性 `VAULT` |
-| `qb_bootstrap.py` | 启动引导：依赖预检（缺包→中文提示，退出码 3）、管道输出强制 UTF-8、`resolve_vault()` / `require_vault()` 唯一 vault 定位入口（--vault > `TNOTE_VAULT` > skill_config.json） |
-| `setup.py` | 首次配置引导：写入 vault + 建库（六类别目录 + 复制模板） |
-| `gen_problem.py` | JSON → 单题 md（支持 `--csv` / `--dry-run` / `--force`） |
-| `scan_questions.py` | 全库校验（必填/枚举/课名/正文/多值 id/定位字段对齐）；`--dump` 输出全量元数据供检索；`--json` 供流水线 |
-| `dedupe_questions.py` | 查重与一题多卷合并：`--scan` / `--check` / `--merge` / `--list-merged` / `--rollback` |
-| `export_student_paper.py` | 组卷导出（清单驱动）：`--清单` 一条命令出 md 卷 / Word 卷（`--docx`，默认同出答题卡）/ `--模式 命题说明` / `--均衡选项` / `--体检`；兼容旧用法 `--卷` + `--only`。**渲染与加工逻辑已拆入 `scripts/paperkit/` 包**（本文件保留 docx 渲染、答题卡、卷级导出与 CLI） |
-| `backtrace_paper.py` | 从成品卷（docx/md/pdf 文字版）反查题库 id、还原组卷清单，输出可直接喂 `export_student_paper.py` |
-| `verify_paper_layout.py` | 试卷版式校验：`--docx` 查字号/行距/字体/页面尺寸/图片/答案分页；`--卷` 查结构层 |
-| `verify_against_source.py` | 录入后回归自检：入库正文 ↔ 源文本归一化逐题比对，支持单文件多卷；退出码 1 可阻断流水线 |
-| `check_note_links.py` | 笔记引用体检：检出断链与指向 `.trash/` 的不合规引用，反推旧 id 改指主卷；`--fix` / `--apply` / `--rollback` / `--cite <id>` |
-| `linkify_citations.py` | 报告补链：把正文/表格里的出处表述批量转成库内 wikilink；默认只读，`--apply` 执行 |
-| `gen_index.py` | 由 BOOK_INDEX 生成 `1-MoC-索引` 试题索引（**初中 6 册 + 高中 7 册 = 13 册**；高中节标题→册别映射复用 `qb_schema.GAOZHONG_SECTIONS`，选修1/2 用课标专题名做课名）；`--dry-run` 预览，检出词表外标题默认中止该册 |
-| `read_docx.py` | 文字版 docx 结构化提取（免 MinerU） |
-| `pull_pdf_images.py` | 从官方 PDF 裁剪补图（输出格式守卫：不可显示格式自动转 PNG） |
-| `fix_image_formats.py` | 图片格式巡检修复：不可显示格式 → jpg/png，同步改引用，原图入回收站；默认只读，`--fix --apply` 落盘 |
-| `fix_arabic_numerals.py` | 中文数字 → 阿拉伯数字（仅改册别/单元字段，正文不动）；默认 dry-run |
-| `scan_lesson.py` | 按课/单元/专题取题统计（`--口径 主考/兼涉/全涉`、`--卷` 筛选、`--body` 带题干） |
-| `scan_missed.py` | 关键词反查：正文含词但未标该课的漏标题 |
-| `scan_volume.py` | 册别/卷别聚合（范围判定 + 课次热度三梯队） |
+下表按「什么时候会用到它」组织；脚本名后即触发场景。
+
+| 脚本 | 用途 | 何时用 |
+|---|---|---|
+| `qb_schema.py` | 公共模块：受控词表（BOOK_INDEX 课名+单元层级+学史方法+高中选修专题）、路径规则、字段校验、`split_frontmatter`、权威序、`is_question_file`、惰性 `VAULT` | 写任何脚本/改字段规则前先看它；报「课名不在词表」「册别非法」时改的是它的词表解析 |
+| `qb_bootstrap.py` | 启动引导：依赖预检（缺包→中文提示，退出码 3）、管道输出强制 UTF-8、`resolve_vault()` / `require_vault()` 唯一 vault 定位入口（--vault > `TNOTE_VAULT` > skill_config.json） | 脚本报「缺少 Python 依赖」或「未配置题库库」时，看它的提示；新增脚本时把 `bootstrap()` 放进入口 |
+| `setup.py` | 首次配置引导：写入 vault + 建库（六类别目录 + 复制模板） | 首次使用、或换机器后脚本报「未配置题库库」（见 `workflow/00-init.md`） |
+| `gen_problem.py` | JSON → 单题 md（支持 `--csv` / `--dry-run` / `--force`） | 已备好录入 JSON，要生成单题 md 时（录入流程第 2 步） |
+| `scan_questions.py` | 全库校验（必填/枚举/课名/正文/多值 id/定位字段对齐）；`--dump` 输出全量元数据供检索；`--json` 供流水线 | 每次录入/合并/改字段后；报「⚠ 问题」即须修，「ℹ 提示」须逐条补齐 |
+| `dedupe_questions.py` | 查重与一题多卷合并：`--scan` / `--check` / `--merge` / `--list-merged` / `--rollback` | 入库前查重（`--check`）、判定同题后合并（`--merge`）、合并后翻账（`--list-merged`/`--rollback`） |
+| `export_student_paper.py` | 组卷导出（清单驱动）：`--清单` 一条命令出 md 卷 / Word 卷（`--docx`，默认同出答题卡）/ `--模式 命题说明` / `--均衡选项` / `--体检`；兼容旧用法 `--卷` + `--only`。**渲染与加工逻辑已拆入 `scripts/paperkit/` 包**（本文件保留 docx 渲染、答题卡、卷级导出与 CLI） | 要出一套卷子（学生卷/命题说明/答题卡）、做卷面体检或答案分布均衡时 |
+| `backtrace_paper.py` | 从成品卷（docx/md/pdf 文字版）反查题库 id、还原组卷清单，输出可直接喂 `export_student_paper.py` | 手上只有成品卷、想还原它的组卷清单（补录清单、复用旧卷）时 |
+| `verify_paper_layout.py` | 试卷版式校验：`--docx` 查字号/行距/字体/页面尺寸/图片/答案分页；`--卷` 查结构层 | Word 卷出好后定版前（有「✗ 不合规」不得交付）；也可只查题库卷结构 |
+| `verify_against_source.py` | 录入后回归自检：入库正文 ↔ 源文本归一化逐题比对，支持单文件多卷；退出码 1 可阻断流水线 | 录入完成后的回归自检：怀疑入库正文与源文件有出入时 |
+| `check_note_links.py` | 笔记引用体检：检出断链与指向 `.trash/` 的不合规引用，反推旧 id 改指主卷；`--fix` / `--apply` / `--rollback` / `--cite <id>` | 报告出现打不开/跳错的链接、或做过一题多卷合并之后 |
+| `linkify_citations.py` | 报告补链：把正文/表格里的出处表述批量转成库内 wikilink；默认只读，`--apply` 执行 | 报告正文里满是「2024 年河南中考 第 25 题」纯文本、想批量变成可点链接时 |
+| `gen_index.py` | 由 BOOK_INDEX 生成 `1-MoC-索引` 试题索引（**初中 6 册 + 高中 7 册 = 13 册**；高中节标题→册别映射复用 `qb_schema.GAOZHONG_SECTIONS`，选修1/2 用课标专题名做课名）；`--dry-run` 预览，检出词表外标题默认中止该册 | BOOK_INDEX 词表改动后（新课加入/课名修订）；**日常录入与组卷不用跑** |
+| `read_docx.py` | 文字版 docx 结构化提取（免 MinerU）；**只接 `.docx`，不处理 pptx**——PPT 需先转 docx/PDF | 拿到文字版 .docx 试卷要提取结构化正文与内嵌图时 |
+| `pull_pdf_images.py` | 从官方 PDF 裁剪补图（输出格式守卫：不可显示格式自动转 PNG） | docx 缺图（如选项被吞成 A.B.C.D.），要从官方扫描 PDF 裁图补上时 |
+| `fix_image_formats.py` | 图片格式巡检修复：不可显示格式 → jpg/png，同步改引用，原图入回收站；默认只读，`--fix --apply` 落盘 | 图片不显示/打不开、出卷丢图、或批量录入后想做图片巡检时 |
+| `fix_arabic_numerals.py` | 中文数字 → 阿拉伯数字（仅改册别/单元字段，正文不动）；默认 dry-run | 册别/单元字段里混着中文数字（第X单元写成「第五单元」类）需要统一时 |
+| `scan_lesson.py` | 按课/单元/专题取题统计（`--口径 主考/兼涉/全涉`、`--卷` 筛选、`--body` 带题干） | 要回答「这一课/这个单元/这个专题考什么」，或按考察角度出练习取题时 |
+| `scan_missed.py` | 关键词反查：正文含词但未标该课的漏标题 | 怀疑某课有题没标课（正文含关键词却没命中）时 |
+| `scan_volume.py` | 册别/卷别聚合（范围判定 + 课次热度三梯队） | 要回答「这一册期末考什么、复习先抓哪些课」时 |
 
 ## 资产位置
 
@@ -88,7 +92,7 @@ author: 教历史的史知行
 | 模板（本 skill 内） | `<skill>/templates/`：`历史试题模板.md`（单题）／`试题研究笔记.md`（A 档·单题/单卷研究）／`试题报告笔记.md`（B 档·课单元专题册别报告）／**`组卷清单.yaml`（组卷清单模板：题目引用 + 分值/来源/角度/选项序/括号）**；初始化时 md 模板**全部**复制到 `{vault}/0-Template-模板/` |
 | 测试（本 skill 内） | `<skill>/tests/test_qb.py`——离线回归（临时题库自建，不碰真库）：`python tests/test_qb.py`；覆盖词表/字段纯函数、题目文件判定、录入→校验→出卷→反查全链路、脚本可用性 |
 | 本机配置（本 skill 内） | `<skill>/scripts/skill_config.json`（`{"vault": "..."}`；**已入 .gitignore，不随仓库发布**） |
-| Python | **依赖声明在 `<skill>/requirements.txt`**（核心只需 pyyaml；docx 直读/PDF 补图/PPT/图片修复分别需 python-docx / pymupdf / python-pptx / numpy+cv2+Pillow）：`pip install -r requirements.txt`。**不要假定系统 `python` 已装齐**——缺 pyyaml 会让核心脚本直接失败；受管环境一般带自带解释器（已含全部依赖），可用它跑全部脚本。脚本入口统一走 `scripts/qb_bootstrap.py`（依赖预检 / 管道 UTF-8 输出 / vault 定位），清单见上「脚本清单」 |
+| Python | **依赖声明在 `<skill>/requirements.txt`**（核心只需 pyyaml；docx 直读/PDF 补图/图片修复分别需 python-docx / pymupdf / numpy+cv2+Pillow；**PPT 无内置脚本、不需 python-pptx**）：`pip install -r requirements.txt`。**不要假定系统 `python` 已装齐**——缺 pyyaml 会让核心脚本直接失败；受管环境一般带自带解释器（已含全部依赖），可用它跑全部脚本。脚本入口统一走 `scripts/qb_bootstrap.py`（依赖预检 / 管道 UTF-8 输出 / vault 定位），清单见上「脚本清单」 |
 
 **类别枚举**（学段-序号类别，原创/改编不占目录）：初中：`1中考真题 / 2中考模拟题 / 3阶段测试`；高中：`1高考真题 / 2高考模拟题 / 3阶段测试`。**教辅卷归 `2*模拟题`**（命名格式与教辅简称表见 `references/fields.md`「卷名命名约定」教辅卷节）。
 
@@ -154,7 +158,7 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
 - `workflow/04-angle-analysis.md` — 流程四 多维度考查方向分析（三口径取题、漏标反查、**9 节发布稿结构**（含「对标中考」固定节：同层外地卷＋上位中考两层）、**§6b 发布化规范**（纯发布式出处、术语转译、表格窄化、配图、合规）、报告落点 `3-试题研究/`），含分析铁律与陷阱
 - `workflow/05-range-analysis.md` — 流程五 册别/学段考试范围分析（范围判定、课次热度三梯队、材料题主线、学困生提分方案六节输出），含范围分析陷阱
 - `tests/test_qb.py` — 离线回归测试（临时题库自建，不碰真库）：`python tests/test_qb.py`
-- `requirements.txt` — Python 依赖声明（核心 pyyaml + 可选 docx/pymupdf/pptx/numpy/cv2/Pillow）
+- `requirements.txt` — Python 依赖声明（核心 pyyaml + 可选 docx/pymupdf/numpy/cv2/Pillow）
 - `references/分析基线-洛阳.md` — 实测对照基线（洛阳9上期末课次热度/卷面结构/分值口径、单课侧基线），分析时先比对基线
 - `references/fields.md` — 字段详解 + JSON 模板（选择题/材料题/论述题）+ 目录规则 + 卷名命名约定
 - `references/book_index.md` — BOOK_INDEX 结构与维护、9上9下核实状态

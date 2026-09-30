@@ -12,7 +12,7 @@
 - ✅ **目录即数据库**：按「学段-类别-卷」组织，跨册/跨课筛选靠 YAML 多值字段 + Obsidian Bases/Dataview
 - ✅ **课名受控词表**：BOOK_INDEX 按教材版本（2024/2025/2026 版人教版）逐册校验，杜绝错字漏字
 - ✅ **素养双轴标注**：核心素养（课标 5 素养）+ 关键能力（郑林 9 要素 A1-C3），受控词表保证标签一致
-- ✅ **双链路录入**：扫描件走 MinerU（可选），文字版 docx/PPT/md 直读免 OCR
+- ✅ **双链路录入**：扫描件走 MinerU（可选），文字版 docx/md 直读免 OCR；**PPT/pptx 不提供内置脚本**，需自行转成 docx/PDF 或写提取代码（见录入流程链路B）
 - ✅ **一题多卷去重**：同一道题被多卷收录时只存权威版本一份，`id` 多值记录全部出处；别名题归档留痕，可回滚
 - ✅ **试卷版式合规**：依 **GB 40070-2021**（强制国标，第 7 章专管考试试卷）核验字号/行空/字体，内置**河南中考卷实测版式原则**（含图文混排）与校验器 `verify_paper_layout.py`
 - ✅ **定位字段多值优先**：`册别/单元/课` 标全所有涉及的课（**首项＝命题落点，其后为兼涉项**，不设项数上限），支持**主考／兼涉／全涉**三口径检索；`scan_questions.py` 内置「课 ↔ 单元/册别」对齐提示与**多值配对提示**（单元多于课、册别重复项自动报出）
@@ -28,7 +28,7 @@
 Obsidian历史题库搭建与组卷/
 ├── SKILL.md                    # 技能主文档（按场景分文件加载的入口）
 ├── README.md
-├── requirements.txt            # Python 依赖（核心 pyyaml + 可选 docx/pymupdf/pptx/numpy/cv2/Pillow）
+├── requirements.txt            # Python 依赖（核心 pyyaml + 可选 docx/pymupdf/numpy/cv2/Pillow）
 ├── LOCAL-PATCH.md              # 本地改造记录（每条含根因 / 改法 / 回归证据）
 ├── LICENSE                     # CC BY-NC-SA 4.0
 ├── templates/
@@ -98,7 +98,7 @@ pip install -r requirements.txt
 
 > 兼容通道（可选）：环境变量 `TNOTE_VAULT` 指定库根目录，优先级最高——Windows `setx TNOTE_VAULT "<你的vault路径>"`（新开终端生效）；macOS/Linux `export TNOTE_VAULT=/path/to/vault`。手动建库时在 vault 根下创建六类别目录：`初中-1中考真题 / 初中-2中考模拟题 / 初中-3阶段测试`、`高中-1高考真题 / 高中-2高考模拟题 / 高中-3阶段测试`，并复制 `templates/历史试题模板.md` 到 `{vault}/0-Template-模板/`。
 
-> **可选**：扫描版 PDF/图片录入需要 MinerU 服务（`mineru-open-api` CLI + token）。无 token 时文字版文件（docx/PPT/md）可直接走免 OCR 链路，不影响核心使用。
+> **可选**：扫描版 PDF/图片录入需要 MinerU 服务（`mineru-open-api` CLI + token）。无 token 时文字版文件（docx/md）可直接走免 OCR 链路，不影响核心使用。
 
 ### 2. 录入（批量）
 
@@ -170,7 +170,7 @@ python scripts/scan_volume.py --册 9上 --卷 "洛阳市2025-2026学年9上期�
 
 **Q：能回答「这一课考什么」「这本书期末考什么」吗？** 能，且是基于题库实证而非经验判断——见「4. 研题」：`scan_lesson.py`（单课，可切主考/兼涉/全涉口径）+ `scan_volume.py`（册别，含范围判定与课次热度三梯队），流程与报告结构见 `workflow/04-angle-analysis.md`、`workflow/05-range-analysis.md`。
 
-**Q：需要配 MinerU 吗？** 仅扫描版 PDF/图片需要。文字版 docx/PPT/md 走直读链路，无需任何外部服务。
+**Q：需要配 MinerU 吗？** 仅扫描版 PDF/图片需要。文字版 docx/md 走直读链路，无需任何外部服务。**Q：PPT 能直接录入吗？** 不能——本 skill 无 pptx 提取脚本，请先另存为 docx 或导出 PDF，再走对应链路。
 
 **Q：原创题/改编题怎么存？** 不新建目录，靠「来源」多值标签区分（如 `[8上教材第1课, 教材改编]`），改编题「年份」写改编年份。
 
