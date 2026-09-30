@@ -5,6 +5,111 @@
 
 ---
 
+---
+
+## 2026-09-30 · 🔧 P1/P2 批次：多值配对校验 / 文档一致性 / 回归测试
+
+**缘起**：承接同日 P0 修复批，继续处理审计列出的 P1/P2 项（用户裁定：继续优化，并清理主文档里的过程性说明）。
+
+**① 多值定位字段配对校验（`scan_questions.py`）**
+
+- `册别/单元/课` 三项按「同序平铺」录入，此前**无任何机器校验**。新增 `ℹ 多值配对提示`，只报两类**确实可判**的硬伤：
+  - **单元项数多于课项数**且存在「没有任何课承接的单元」（实测 32 题）
+  - **册别有重复项**（如 `[8上, 8上, 8上]`，实测 63 题）
+- **刻意不报**的三类写法自由（报了就是海量假阳性，实测达 115 条）：单元少于课、单元与课不同序、同单元多课去重后项数必然少于课。
+- 判据可靠性保护：若某课在词表里查不到所属单元（新增课/词表未同步），本项**不报**，交由「课名词表」问题级处理。
+- 实测全库：95 题命中（单元支 32 + 册别支 63），**无假阳性**。
+- 提示级、不阻断交付；输出进入 `--json` 的 `pair_hits` 字段。
+
+**② `scan_questions.py` 退出码缺阻断（真缺陷）**
+
+- 原实现报「⚠ 问题 N 项」后仍 `return`，**退出码恒为 0**——与文档「✓ 无问题才交付」「可阻断流水线」相矛盾，CI/脚本无法据此拦截（`verify_against_source.py` 早已用退出码 1 阻断，二者不一致）。
+- 改为：有问题 → 退出码 **1**；`✓ 无问题` → 0。`ℹ` 提示级不阻断。
+- ⚠ **流水线影响**：若有脚本以 `scan_questions.py` 的成功退出码作为「全库健康」判据，现在会正确地失败——这是修复，不是回归。
+
+**③ 主文档清理过程性说明（`SKILL.md`）**
+
+- 删去全部日期/版本/事故叙事：`（2026-08-24 立）`「2026-09-26 全库实测：154 处 / 81 篇」「v1.22.0 起」「血泪」等；规则本体与自检判据**全部保留**。
+- 「资产位置」表里的脚本单元格原为 **2435 字符单行**（19 个脚本用法挤在一格）→ 拆成正文「脚本清单」表（每脚本一行），表格行只留指路。
+- 结果：33.2KB → 28.7KB，最长行 2435 → 508 字符；`version` 1.22.0 → **1.23.0**。
+
+**④ 文档一致性（`README.md` 等）**
+
+- README「特性」去掉停在 v1.7.0 的版本号，补齐反查/依赖引导/多值配对等现状；**目录树补全**（原先缺 `requirements.txt`、`qb_bootstrap.py`、`backtrace_paper.py`、`check_note_links.py`、`linkify_citations.py`、`组卷清单.yaml` 与两份笔记模板）。
+- 失效引用清理：`workflow/02-compose.md` 的 `build_candidates.py`（脚本不存在）→ 改为「`scan_questions.py --dump` 输出落成候选清单」；`workflow/04-angle-analysis.md` 的 **外部技能** `md批量导出word`/`md2docx.py` → 改为走本 skill 自带的 `export_student_paper.py --docx`；`references/参考-图片与图注修复.md` 与 SKILL.md 的 `fix_captions.py`（不随分发）→ 改为幂等范式描述。`LOCAL-PATCH.md` 中的历史脚本名保留（那是历史记录本身）。
+- `workflow/*` 的小节标题去掉「血泪」等情绪化字样。
+
+**⑤ 回归测试（新增 `tests/test_qb.py`）**
+
+- **离线、不碰真库**：每条测试在 `tests/_tmp/` 下自建最小题库，子进程用 `TNOTE_VAULT` 指向它（`qb_schema` 在导入期解析 vault，故必须子进程）。
+- **30 条**，`python tests/test_qb.py`：词表/字段纯函数（`as_list`/`norm_for_dedupe`/`authority_key`/`source_pairs`/YAML 往返/路径规则）、13 册词表与层级可解析、题目文件判定（模板与辅助文件不进统计、`.trash` 归档件仍判为真）、**录入→校验→出卷→反查全链路**、多值配对三类边界（真错报出、合法写法不误报）、CLI 全部 `--help` 可用（含未配置 vault 时）、脚本清单与实际文件一致。
+- 沙箱注意：**不要用 `tempfile.mkdtemp`**（按 0o700 建目录，受限工作区里其下再建子目录会被拒 `WinError 5`），改用 `os.makedirs`。
+
+**回归证据（工作目录 = skill 根，解释器 = 受管 venv）**
+
+| 项 | 结果 |
+|---|---|
+| `python tests/test_qb.py` | **30 条全部 OK** |
+| `scan_questions.py` 全库 | `✓ 无问题`（退出码 0）；95 条 `ℹ 多值配对提示` |
+| `scan_questions.py` 有问题库 | 打印问题并以退出码 **1** 结束 |
+| `check_note_links.py` | 13 份笔记 / 672 链接 / 无断链（与基线一致） |
+| `gen_index.py --dry-run` | 与现状一致 |
+| 18 个 CLI 脚本 `--help` | 全部 0（有配置 / 无配置两种场景） |
+
+**本次未做**：`gen_index.py` 仍只索引初中六册（高中三册未建索引）；`export_student_paper.py` 2208 行未拆分（用户裁定先加测试再拆）；`templates/历史试题模板.md` 与《试卷排版规范》§四 的「正文不写整题分值」表述仍可再统一；3 个 `.bak-*` 保留在工作区（已入 `.gitignore`）。
+
+---
+
+## 2026-09-30 · 🔧 P0 修复批：依赖声明 / 启动引导 / 惰性 vault / 题目文件判定收紧
+
+**缘起**：对 skill 做了一次只读审计，实测暴露四个会让 skill「换台机器就跑不动」或「静默统计失真」的问题，本批一次修完。**用户裁定：先改 P0 四项**。
+
+**① 依赖未声明（新增 `requirements.txt`，全脚本加依赖预检）**
+
+- 实测本机系统 `python`（`AppData\Local\Python\pythoncore-3.14-64`）**缺 pyyaml**，`python scan_questions.py` 直接 `ModuleNotFoundError: No module named 'yaml'`（崩在 `qb_schema.split_frontmatter`）；`check_note_links.py` 同样。而 skill 内此前**没有任何依赖清单**，依赖只散在 `00-init.md` / `README.md` / `SKILL.md` 正文里。
+- 新增 `requirements.txt`（pyyaml 核心 + docx/pymupdf/pptx/numpy/cv2/Pillow 可选），并新增 `scripts/qb_bootstrap.py`：`check_deps()` 缺包时打印中文安装提示、**退出码 3**，不再吐裸 traceback。
+- 18 个脚本的 `main()` 首行统一加 `bootstrap(...)`（`need` 按各脚本实际依赖给）。
+
+**② `qb_schema` 导入期求值 vault → 无配置时连 `--help` 都崩**
+
+- 原 `VAULT = get_vault()` 在模块顶层：未配置题库库时**导入即 RuntimeError**（实测 `scan_lesson.py --help` 直接 traceback）。
+- 改模块级 `__getattr__` 惰性导出；`stage_roots()` 内部改走 `qb_bootstrap.require_vault()`（未配置时中文引导 + 退出码 2）。
+- 同时清掉 7 个脚本里「导入期访问 VAULT」的写法（`from qb_schema import VAULT` / `Path(VAULT)` / `Path(qb_schema.get_vault())` 共 22 处 → `require_vault()`），`linkify_citations` 的 `VAULT`/`NOTE_DIR` 模块级常量改 `vault_dir()`/`note_dir()` 函数。
+- **验证**：清空 `skill_config.json` 后 18 个脚本 `--help` 全部正常（此前 4 个直接 traceback）；真跑则统一给中文引导 + 退出码 2。
+
+**③ Windows 控制台 GBK 把中文参数显示成乱码**
+
+- 实测管道输出下 `scan_lesson.py --help` 显示 `[--��Ԫ UNITS] [--�� VOLUMES]`，AI/用户极易误读参数名；加 `PYTHONIOENCODING=utf-8` 即正常。
+- `bootstrap()` 的 `setup_output_encoding()`：**管道输出强制 UTF-8**，真实控制台（`isatty`）保持系统编码不变（不制造新的乱码）。**验证**：不加任何环境变量，18 个脚本 `--help` 的中文参数名全部正常。
+
+**④ `is_question_file()` 把题库外文件也算成题（统计虚增 + id 撞车）**
+
+- 原判定只看文件名，实测把 `{vault}/0-Template-模板/` 下 **3 个模板文件**也判为题目：全库统计 2629（真实 2626），且模板示例 id `2026河南中考-01` 与真题文件**撞车**（「同一 id 出现在多个文件」实测 3 例中有 1 例由此产生）。
+- 收紧为「文件名合法 **且** 路径位于题库目录（`{vault}/{学段-类别}/…`）之下」，新增 `STAGE_DIR_RE`。库内回收站 `.trash/` 下归档件**仍返回 True**（`check_note_links.py` 靠它反推旧 id），是否排除归档区由调用方决定（遍历用 `stage_roots()`）。
+- **验证**：模板目录误判数 0；`scan_questions.py` 全库 `✓ 无问题`；`check_note_links.py` 仍 `672/672 正常`。
+
+**⑤ 文档同步**：`README.md`（依赖安装段）、`workflow/00-init.md`（第 4 条依赖）、`SKILL.md`（资产位置 → Python 行改写为「依赖声明 + qb_bootstrap 三职责」；目录规范补 `__pycache__`/`.bak` 不得留库）、`.gitignore`（`*.bak` / `*.bak-*` / `_audit_tmp/`）。
+
+**回归证据（改动后全绿，工作目录 = scripts，解释器 = 受管 venv）**
+
+| 项 | 结果 |
+|---|---|
+| `py_compile` 全部脚本 | exit 0 |
+| 18 脚本 `--help`（有配置 / 无配置） | 均 0，中文参数名正常 |
+| `scan_questions.py` 全库 | `✓ 无问题` |
+| `check_note_links.py` | 13 份笔记 / 672 处链接 / 672 正常 / 无断链（与改动前基线一致） |
+| `gen_index.py --dry-run` | 六册「与现状一致」（重建幂等，证明惰性 vault 改造无副作用） |
+| `export_student_paper.py --体检 / --模式 学生 / --模式 命题说明` | 均正常出卷 |
+| `backtrace_paper.py`（用刚出的卷反查） | 2 题全部定回 id |
+| `scan_volume / scan_lesson / scan_missed / linkify_citations / dedupe --scan / fix_image_formats` | 均正常 |
+| 系统 `python`（缺 pyyaml）跑核心脚本 | 中文依赖提示 + 退出码 3（不再是裸 traceback） |
+
+**复现（重装/同步时）**：`pip install -r requirements.txt`；确认 `scripts/qb_bootstrap.py` 存在；`python scripts/scan_questions.py --help` 能打印用法即引导链路完好。
+
+**本次未做（审计列为 P1/P2，待裁定）**：① 多值定位字段「册别/单元/课 同序平铺」缺机器校验（实测 115 条项数不等、确有真错；且课程名只能按 13 册词表并集校验，无法按册精确校验）；② README 特性停在 v1.7.0、目录树缺 3 个脚本；③ `workflow/02-compose.md` 引用已不存在的 `build_candidates.py`，`LOCAL-PATCH` 引用 `extract_selected.py`；④ `workflow/04-angle-analysis.md:159` 指向**外部技能** `md批量导出word` 的 `md2docx.py`；⑤ 本目录无 `.git`（有 `.gitignore` 与 GitHub 仓库链接），本地改造无基线可 diff；⑥ `export_student_paper.py` 2208 行单体；⑦ 无 tests/；⑧ 3 个 `.bak-*` 仍在 `scripts/`（已加 .gitignore，未删）。
+
+---
+
 ## 2026-09-28 · 📐 `references/fields.md` 新增「史料研读 / 史学方法类题（高中选修1/选修2）判定口径」
 
 **缘起**：全库复检高中高考真题补标选修时形成的判定口径，用户问「skills 中有无体现」——核查**未沉淀**（此前只记于工作日志），本条把它落进文档。与同日「开放论述题定位口径」并列，构成多值定位的两条特殊题型口径。

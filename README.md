@@ -13,30 +13,35 @@
 - ✅ **课名受控词表**：BOOK_INDEX 按教材版本（2024/2025/2026 版人教版）逐册校验，杜绝错字漏字
 - ✅ **素养双轴标注**：核心素养（课标 5 素养）+ 关键能力（郑林 9 要素 A1-C3），受控词表保证标签一致
 - ✅ **双链路录入**：扫描件走 MinerU（可选），文字版 docx/PPT/md 直读免 OCR
-- ✅ **一题多卷去重**（v1.3.0）：同一道题被多卷收录时只存权威版本一份，`id` 多值记录全部出处；别名题归档留痕，可回滚
-- ✅ **试卷版式合规**（v1.4.0）：依 **GB 40070-2021**（强制国标，第 7 章专管考试试卷）核验字号/行空/字体，内置**河南中考卷实测版式原则**（含图文混排）与校验器 `verify_paper_layout.py`
-- ✅ **定位字段多值优先**（v1.5.0）：`册别/单元/课` 标全所有涉及的课（**首项＝命题落点，其后为兼涉项**，不设项数上限），支持**主考／兼涉／全涉**三口径检索；`scan_questions.py` 内置「课 ↔ 单元/册别」对齐提示，多值漏写自动报出
-- ✅ **题库全生命周期共五个流程**（v1.6.0）：存（录入）→ 校（校验）→ 取（组卷）→ 研（**多维度考查方向分析** / **册别考试范围分析**），后两个分析流程自带取题、漏标反查与聚合统计脚本
-- ✅ **图片格式守卫**（v1.7.0）：**Obsidian 不渲染 TIFF/EMF/WMF**（存了就是破图）。录入侧 `read_docx.py`（docx 内嵌图）、`pull_pdf_images.py`（PDF 裁剪）已自动挡格式、转 PNG 落盘；存量图片用 `fix_image_formats.py` 巡检修复——转 jpg/png（连续调→JPG 更小、真透明/二值→PNG）、**按路径同步改 md 引用**、原图移入回收站，默认只读、`--fix --apply` 才动手
+- ✅ **一题多卷去重**：同一道题被多卷收录时只存权威版本一份，`id` 多值记录全部出处；别名题归档留痕，可回滚
+- ✅ **试卷版式合规**：依 **GB 40070-2021**（强制国标，第 7 章专管考试试卷）核验字号/行空/字体，内置**河南中考卷实测版式原则**（含图文混排）与校验器 `verify_paper_layout.py`
+- ✅ **定位字段多值优先**：`册别/单元/课` 标全所有涉及的课（**首项＝命题落点，其后为兼涉项**，不设项数上限），支持**主考／兼涉／全涉**三口径检索；`scan_questions.py` 内置「课 ↔ 单元/册别」对齐提示与**多值配对提示**（单元多于课、册别重复项自动报出）
+- ✅ **五个流程闭环**：存（录入）→ 校（校验）→ 取（组卷）→ 研（**多维度考查方向分析** / **册别考试范围分析**）+ **反查**（只有成品卷时还原组卷清单），分析流程自带取题、漏标反查与聚合统计脚本
+- ✅ **图片格式守卫**：**Obsidian 不渲染 TIFF/EMF/WMF**（存了就是破图）。录入侧 `read_docx.py`（docx 内嵌图）、`pull_pdf_images.py`（PDF 裁剪）已自动挡格式、转 PNG 落盘；存量图片用 `fix_image_formats.py` 巡检修复——转 jpg/png（连续调→JPG 更小、真透明/二值→PNG）、**按路径同步改 md 引用**、原图移入回收站，默认只读、`--fix --apply` 才动手
+- ✅ **依赖声明与启动引导**：`requirements.txt` 声明全部依赖，脚本入口经 `qb_bootstrap.py` 做依赖预检（缺包给中文提示，退出码 3）、管道输出强制 UTF-8、vault 定位统一（--vault > `TNOTE_VAULT` > 配置文件）
 - ✅ **脚本全自动化**：JSON → 生成单题 md → 全库校验 → 组卷导出，一条命令链
 
 ## 目录结构
 
 ```
 Obsidian历史题库搭建与组卷/
-├── SKILL.md                    # 技能主文档（存/校/取/研五流程操作手册）
+├── SKILL.md                    # 技能主文档（按场景分文件加载的入口）
 ├── README.md
-├── LOCAL-PATCH.md              # 本地改造记录（verify_against_source 多卷支持等）
+├── requirements.txt            # Python 依赖（核心 pyyaml + 可选 docx/pymupdf/pptx/numpy/cv2/Pillow）
+├── LOCAL-PATCH.md              # 本地改造记录（每条含根因 / 改法 / 回归证据）
 ├── LICENSE                     # CC BY-NC-SA 4.0
 ├── templates/
-│   └── 历史试题模板.md           # 单题模板（初始化时复制到 vault）
+│   ├── 历史试题模板.md           # 单题模板（初始化时复制到 vault）
+│   ├── 试题研究笔记.md           # A 档：单题/单卷研究
+│   ├── 试题报告笔记.md           # B 档：课/单元/专题/册别报告
+│   └── 组卷清单.yaml            # 组卷清单模板
 ├── workflow/
 │   ├── 00-init.md              # 首次使用引导
 │   ├── 01-input.md             # 流程一 录入（含查重与合并）
 │   ├── 02-compose.md           # 流程二 组卷/出题（含版式合规自检）
-│   ├── 03-check.md             # 流程三 校验与词表维护（含定位字段提示）
-│   ├── 04-angle-analysis.md   # 流程四 多维度考查方向分析（v1.6.0）
-│   └── 05-range-analysis.md    # 流程五 册别/学段考试范围分析（v1.6.0）
+│   ├── 03-check.md             # 流程三 校验与词表维护（含定位字段/多值配对提示）
+│   ├── 04-angle-analysis.md    # 流程四 多维度考查方向分析
+│   └── 05-range-analysis.md    # 流程五 册别/学段考试范围分析
 ├── references/
 │   ├── fields.md               # 字段详解 + JSON 模板 + 卷名命名约定 + 多值录入判据 + 一题多卷与去重
 │   ├── book_index.md           # BOOK_INDEX 结构与维护（含单元层级与修订联动）
@@ -48,19 +53,23 @@ Obsidian历史题库搭建与组卷/
 │   └── 分析基线-洛阳.md          # 实测对照基线（课次热度/卷面结构/分值口径）
 └── scripts/
     ├── qb_schema.py            # 公共模块：词表（课名+单元层级）+ 路径规则 + 校验 + 权威序
+    ├── qb_bootstrap.py         # 启动引导：依赖预检 / 管道 UTF-8 / vault 定位
     ├── setup.py                # 首次配置引导（写入 vault 配置 + 建库）
     ├── gen_problem.py          # JSON → 单题 md
-    ├── scan_questions.py       # 全库校验（必填/枚举/课名/正文非空/id 多值/定位字段提示）
+    ├── scan_questions.py       # 全库校验（必填/枚举/课名/正文/id 多值/定位字段/多值配对提示）
     ├── dedupe_questions.py     # 查重 + 一题多卷合并（scan/check/merge/rollback）
+    ├── export_student_paper.py # 组卷导出（清单驱动 → md/Word 卷 + 答题卡 + 命题说明 + 卷面体检）
+    ├── backtrace_paper.py      # 从成品卷反查题库 id、还原组卷清单
     ├── verify_paper_layout.py  # 试卷版式校验器（docx 字号行距 / 卷结构层）
-    ├── verify_against_source.py # 录入后回归自检（入库正文 ↔ MinerU 源文本逐题比对，支持单文件多卷）
-    ├── export_student_paper.py # 组卷导出（清单驱动：--清单 组卷清单.yaml → md/Word 卷 + 卷面体检）
+    ├── verify_against_source.py # 录入后回归自检（入库正文 ↔ 源文本逐题比对，支持单文件多卷）
+    ├── check_note_links.py     # 笔记引用体检（断链 / 指向 .trash 的不合规引用，可改指主卷）
+    ├── linkify_citations.py    # 报告补链（出处表述 → 库内 wikilink，默认只读）
     ├── gen_index.py            # 由 BOOK_INDEX 生成六册试题索引
     ├── read_docx.py            # docx 结构化提取（免 MinerU）
     ├── pull_pdf_images.py      # 从官方 PDF 裁剪补图（输出格式守卫：TIFF 自动转 PNG）
     ├── fix_image_formats.py    # 图片格式巡检修复（不可显示格式 → jpg/png，同步改引用，原图入回收站）
     ├── fix_arabic_numerals.py  # 中文数字 → 阿拉伯数字批量转换
-    ├── scan_lesson.py          # 流程四：按课取题统计（--口径 主考/兼涉/全涉）
+    ├── scan_lesson.py          # 流程四：按课/单元/专题取题统计（--口径 主考/兼涉/全涉）
     ├── scan_missed.py          # 流程四：关键词反查（正文含词但未标该课）
     ├── scan_volume.py          # 流程五：册别/卷别聚合（范围判定 + 课次热度三梯队）
     └── BOOK_INDEX.md           # 课名受控词表（初中六册 7上~9下 + 高中纲要/选必 + 选修1-2 两模块共 14 专题）
@@ -75,10 +84,13 @@ Obsidian历史题库搭建与组卷/
 python scripts/setup.py --vault "<你的vault路径>" --init    # 推荐：写入配置并建库
 python scripts/setup.py                                    # 或交互式引导
 
-# ② 安装 Python 依赖
-pip install pyyaml                             # 核心流程必需
-pip install python-docx pymupdf python-pptx    # 可选：docx 直读 / PDF 补图 / PPT 提取（受管 venv 通常已装，先 `import` 验一下）
+# ② 安装 Python 依赖（一条命令装齐；只跑核心流程则 pip install pyyaml 即可）
+pip install -r requirements.txt
 ```
+
+> **依赖预检**：脚本启动时会检查依赖，缺包时打印中文安装提示并以退出码 3 结束（不再吐裸 traceback）。
+> ⚠ 系统 `python` 未必装了 `pyyaml`——2026-09-30 实测本机系统 Python 3.14 只有 `python-docx`，缺 `pyyaml` 会让 `scan_questions.py` 等核心脚本当场失败；受管环境一般带自带解释器（含 pyyaml / python-docx / pymupdf / numpy / cv2 / Pillow），可用它跑全部脚本。
+> **编码**：脚本在管道输出（AI 读取、重定向到文件）时自动切 UTF-8，Windows 控制台下 `--单元/--卷/--口径` 等中文参数不再显示为乱码。
 
 > 兼容通道（可选）：环境变量 `TNOTE_VAULT` 指定库根目录，优先级最高——Windows `setx TNOTE_VAULT "<你的vault路径>"`（新开终端生效）；macOS/Linux `export TNOTE_VAULT=/path/to/vault`。手动建库时在 vault 根下创建六类别目录：`初中-1中考真题 / 初中-2中考模拟题 / 初中-3阶段测试`、`高中-1高考真题 / 高中-2高考模拟题 / 高中-3阶段测试`，并复制 `templates/历史试题模板.md` 到 `{vault}/0-Template-模板/`。
 

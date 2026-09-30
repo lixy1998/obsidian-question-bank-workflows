@@ -9,10 +9,12 @@
 1. **AI 引导**（推荐）：用户说「录入到题库」等时，若脚本报「未配置题库库」→ 主动询问 vault 位置 → 用户提供后执行 `python scripts/setup.py --vault "<路径>" --init`（或仅 `--vault`，不建库）→ 提示完成
 2. **命令行引导**：`python scripts/setup.py`（交互式，可新建）或 `python scripts/setup.py --vault <路径> --init`（一键写入+建库）
 3. **兼容通道（可选）**：环境变量 `TNOTE_VAULT` 优先级最高（Windows `setx TNOTE_VAULT "<你的vault路径>"`；macOS/Linux 写入 shell 配置）
-4. **Python 依赖**：
-   - 核心流程（写 JSON → gen → scan → export → 分析统计）只需 `pyyaml`：`pip install pyyaml`
-   - 链路B 扩展（可选）：`pip install python-docx pymupdf python-pptx`（docx 直读 / PDF 裁剪补图 / PPT 提取）
-   - ⚡ **受管 venv 已装齐**（`~/.workbuddy/binaries/python/envs/default/`，含 pyyaml / python-docx / pymupdf，2026-09-14 实测）→ 全部脚本可直接用该 venv 解释器执行；若报 `ModuleNotFoundError` 再按上两行安装
+4. **Python 依赖**（2026-09-30 起统一声明在 `<skill>/requirements.txt`）：
+   - 核心流程（写 JSON → gen → scan → export → 分析统计）只需 `pyyaml`
+   - 链路B 扩展（可选）：`python-docx`（docx 直读 / Word 卷导出）、`pymupdf`（PDF 补图）、`python-pptx`（PPT 提取）；图片修复另需 `numpy` / `opencv-python` / `Pillow`
+   - **一条命令装齐**：`pip install -r <skill>/requirements.txt`（只装核心：`pip install pyyaml`）
+   - **先探测解释器，再决定**：脚本会做依赖预检——缺包时打印「请安装依赖后重试」的中文提示并以退出码 3 结束，不再吐裸 traceback。**不要默认假设系统 `python` 已装 pyyaml**（实测常见只有 python-docx），受管环境一般有自带解释器（如 `~/.workbuddy/binaries/python/envs/default/python.exe`），可用它直接跑全部脚本
+   - 输出编码：脚本在**管道输出**（AI 读取、重定向到文件）时自动切 UTF-8，避免 Windows 控制台 GBK 把 `--单元/--卷/--口径` 等中文参数显示成乱码；真实控制台保持系统编码不变
 5. **建库**：`--init` 自动建六类别目录 + 复制 `templates/` 下全部模板到 `{vault}/0-Template-模板/`（历史试题模板 + 试题研究笔记 + 试题报告笔记）；已建库的跳过
 6. **可选：MinerU 服务**（仅扫描版 PDF/图片需要，链路A）：安装 `mineru-open-api` CLI 并配置 token（`~/.mineru/config.yaml`）；文字版文件（docx/PPT/md）走链路B 免 MinerU
 
