@@ -1,0 +1,96 @@
+{
+ "卷末答题卡.docx": {
+  "kind": "docx",
+  "parts": {
+   "[Content_Types].xml": "98da1c3b53db2295e8bf7570d35f0c59f98f650930a9b61be218fb8b9a04a101",
+   "_rels/.rels": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
+   "customXml/_rels/item1.xml.rels": "1ca6c9a64edcebe24ee703a54403611b322d96da33371779e742d2d3f7ed7a6c",
+   "customXml/item1.xml": "a86086ffc5d8e83ebd6c71a55d1d2efaa31b137977f5f3a752366e1023612144",
+   "customXml/itemProps1.xml": "c542307b13ec29a8b546217bb37936ab4822e044b265d2952985ec3d6afed24e",
+   "docProps/thumbnail.jpeg": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
+   "word/_rels/document.xml.rels": "125a941674a26403972a869dd60fcdb82da089ff35ac3b297be07240db44afd2",
+   "word/document.xml": "abdac72f172c02aa4841439b45e1fcc9e70de81b36e1ebd1168cb5de2d5f6ee5",
+   "word/fontTable.xml": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
+   "word/footer1.xml": "31b6429e903f5d5c0ded3a42aca86a557ab7139736631a50e2b11049a8fb86ae",
+   "word/numbering.xml": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
+   "word/settings.xml": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",
+   "word/styles.xml": "710f881fc3a261d6c1b5fd301ec116b2176eaffabb2c9306b248bca8830813fc",
+   "word/stylesWithEffects.xml": "463ae0928cf0d84775dbf8cf18d6c3029f6707c81bf590f6d6dd8757a5e93f15",
+   "word/theme/theme1.xml": "e3a8ab7db9ca7afca56f5f2820a56e8b660016c647773555b060b0a02ac76941",
+   "word/webSettings.xml": "349d36de7434d09f86987ff671d8814964a0588c1e630c06e562cda7e75e9f95"
+  }
+ },
+ "命题说明.docx": {
+  "kind": "docx",
+  "parts": {
+   "[Content_Types].xml": "66c84fb7a6aa3c4ead49f895e4a7044df1fb57de1ed76d09b2686e91f5bed5b4",
+   "_rels/.rels": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
+   "customXml/_rels/item1.xml.rels": "1ca6c9a64edcebe24ee703a54403611b322d96da33371779e742d2d3f7ed7a6c",
+   "customXml/item1.xml": "a86086ffc5d8e83ebd6c71a55d1d2efaa31b137977f5f3a752366e1023612144",
+   "customXml/itemProps1.xml": "c542307b13ec29a8b546217bb37936ab4822e044b265d2952985ec3d6afed24e",
+   "docProps/thumbnail.jpeg": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
+   "word/_rels/document.xml.rels": "1e7f0eb144a98e199249314f61ff32a8de2a27e56d8e9ee6b524e1c6b235d377",
+   "word/document.xml": "2bd53a7bc3063872a943cb4331074ba197540e751eece1f2189509b2bd39c273",
+   "word/fontTable.xml": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
+   "word/numbering.xml": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
+   "word/settings.xml": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",
+   "word/styles.xml": "02d71a68ddb92c055e84526d6a9e45700be3872781ababf759241694bc30e384",
+   "word/stylesWithEffects.xml": "463ae0928cf0d84775dbf8cf18d6c3029f6707c81bf590f6d6dd8757a5e93f15",
+   "word/theme/theme1.xml": "e3a8ab7db9ca7afca56f5f2820a56e8b660016c647773555b060b0a02ac76941",
+   "word/webSettings.xml": "349d36de7434d09f86987ff671d8814964a0588c1e630c06e562cda7e75e9f95"
+  }
+ },
+ "命题说明.md": {
+  "kind": "file",
+  "sha256": "b4b3ae64e53f9dcefe9e807a6efa83b5ad89439155e49fadba6d4a0799977edc"
+ },
+ "学生.docx": {
+  "kind": "docx",
+  "parts": {
+   "[Content_Types].xml": "98da1c3b53db2295e8bf7570d35f0c59f98f650930a9b61be218fb8b9a04a101",
+   "_rels/.rels": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
+   "customXml/_rels/item1.xml.rels": "1ca6c9a64edcebe24ee703a54403611b322d96da33371779e742d2d3f7ed7a6c",
+   "customXml/item1.xml": "a86086ffc5d8e83ebd6c71a55d1d2efaa31b137977f5f3a752366e1023612144",
+   "customXml/itemProps1.xml": "c542307b13ec29a8b546217bb37936ab4822e044b265d2952985ec3d6afed24e",
+   "docProps/thumbnail.jpeg": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
+   "word/_rels/document.xml.rels": "125a941674a26403972a869dd60fcdb82da089ff35ac3b297be07240db44afd2",
+   "word/document.xml": "d7130ab9093a09ac15ec81750787c298a01891dc2ef0dc639f5deb20ae912833",
+   "word/fontTable.xml": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
+   "word/footer1.xml": "31b6429e903f5d5c0ded3a42aca86a557ab7139736631a50e2b11049a8fb86ae",
+   "word/numbering.xml": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
+   "word/settings.xml": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",
+   "word/styles.xml": "710f881fc3a261d6c1b5fd301ec116b2176eaffabb2c9306b248bca8830813fc",
+   "word/stylesWithEffects.xml": "463ae0928cf0d84775dbf8cf18d6c3029f6707c81bf590f6d6dd8757a5e93f15",
+   "word/theme/theme1.xml": "e3a8ab7db9ca7afca56f5f2820a56e8b660016c647773555b060b0a02ac76941",
+   "word/webSettings.xml": "349d36de7434d09f86987ff671d8814964a0588c1e630c06e562cda7e75e9f95"
+  }
+ },
+ "学生.md": {
+  "kind": "file",
+  "sha256": "ab243db3c16ae7328bfe4eed8d840c5b5ceaef3beb055d01796445cad5255294"
+ },
+ "测试快照卷_答题卡.docx": {
+  "kind": "docx",
+  "parts": {
+   "[Content_Types].xml": "567deca35962f899cebc8f066c91dca7d047c254ce05307bb5cc675909217409",
+   "_rels/.rels": "a9ae57efe9186f07d48303bcac5d54c7e359bf3f503939c03ad2954e5c59a5c4",
+   "customXml/_rels/item1.xml.rels": "1ca6c9a64edcebe24ee703a54403611b322d96da33371779e742d2d3f7ed7a6c",
+   "customXml/item1.xml": "a86086ffc5d8e83ebd6c71a55d1d2efaa31b137977f5f3a752366e1023612144",
+   "customXml/itemProps1.xml": "c542307b13ec29a8b546217bb37936ab4822e044b265d2952985ec3d6afed24e",
+   "docProps/thumbnail.jpeg": "96367138dc44ce09bf2c8f0f8e49348a1478d2c5c0af69bbc2bbc38b63cdcead",
+   "word/_rels/document.xml.rels": "80415fb90acd1001339aba46855eddf06b17e9711e555ccbf58f69730c34af17",
+   "word/document.xml": "12af73e6091a547df5ba7bfffac8263503f3b3cfdb5b8765c885d1c5cdbe4687",
+   "word/fontTable.xml": "79385fb7f60247507ecaffc292e9ebd52ea0657b8634f629ba6fccc54011d6bb",
+   "word/footer1.xml": "6e5c14a8419906ec5f87c63f811201e8640ec5f9ce500e27c0706bd2a37539f7",
+   "word/footer2.xml": "6e5c14a8419906ec5f87c63f811201e8640ec5f9ce500e27c0706bd2a37539f7",
+   "word/header1.xml": "06b8186ca6596ea614ada527f96aab951a4e78d048bd3914665dffb137505551",
+   "word/header2.xml": "e1d2d4060c859ac7d6648284ba49706cf80e2e14374d3cf9bb2983edf9ee677f",
+   "word/numbering.xml": "70976f19cbcd896e51890859fe6ecb3467a5a7ad0c040160fedc5a1993cb09ce",
+   "word/settings.xml": "51a0d348fe85965c66e4748a03c3c0d055d78455514f03cb121c334af7d73689",
+   "word/styles.xml": "710f881fc3a261d6c1b5fd301ec116b2176eaffabb2c9306b248bca8830813fc",
+   "word/stylesWithEffects.xml": "463ae0928cf0d84775dbf8cf18d6c3029f6707c81bf590f6d6dd8757a5e93f15",
+   "word/theme/theme1.xml": "e3a8ab7db9ca7afca56f5f2820a56e8b660016c647773555b060b0a02ac76941",
+   "word/webSettings.xml": "349d36de7434d09f86987ff671d8814964a0588c1e630c06e562cda7e75e9f95"
+  }
+ }
+}

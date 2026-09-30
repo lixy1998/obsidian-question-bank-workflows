@@ -8,6 +8,11 @@ __pycache__/
 *.bak-*
 _audit_tmp/
 
+# 测试临时产物（test_qb.py 自建；_baseline.json 是拆分基线，随仓库保留）
+tests/_tmp/
+tests/_snap/
+tests/_dbg*/
+
 # 本机配置（首次使用引导写入，含个人 vault 路径，绝不随仓库发布）
 scripts/skill_config.json
 
