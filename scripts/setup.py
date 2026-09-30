@@ -17,6 +17,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from qb_bootstrap import bootstrap
+
 SCRIPTS = Path(__file__).parent
 SKILL_ROOT = SCRIPTS.parent
 CONFIG_FILE = SCRIPTS / "skill_config.json"
@@ -76,6 +78,7 @@ def interactive() -> None:
 
 
 def main():
+    bootstrap(need=())
     ap = argparse.ArgumentParser(description="Obsidian历史题库搭建与组卷 首次配置")
     ap.add_argument("--vault", help="题库库根目录路径（写入配置）")
     ap.add_argument("--init", action="store_true", help="建库（六类别目录+模板）")

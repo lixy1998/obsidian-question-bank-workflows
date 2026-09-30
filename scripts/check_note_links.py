@@ -39,7 +39,8 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from qb_schema import ARCHIVE_ROOT, TYPES, VAULT, is_question_file, split_frontmatter  # noqa: E402
+from qb_bootstrap import bootstrap, require_vault
+from qb_schema import ARCHIVE_ROOT, TYPES, is_question_file, split_frontmatter  # noqa: E402
 
 ARCHIVE_DIR = ARCHIVE_ROOT          # 单一来源：qb_schema（点开头＝Obsidian 不索引该目录）
 NOTE_DIR_DEFAULT = "3-试题研究"
@@ -86,7 +87,7 @@ def write_text_raw(p: Path, text: str) -> None:
 # ---------------------------------------------------------------- 索引
 def iter_question_files():
     """全库题目文件：在库（初中-*/高中-*）＋ 归档区（.trash/**，脚本自己扫盘，不依赖 Obsidian 索引）。"""
-    vault = Path(VAULT)
+    vault = require_vault()
     out = []
     for root in sorted(p for p in vault.iterdir() if p.is_dir() and re.match(r"^(初中|高中)-", p.name)):
         out.extend(p for p in root.rglob("*.md") if is_question_file(p))
@@ -106,7 +107,7 @@ def build_index():
     hits = defaultdict(list)   # id -> [(archived, rel), ...]
     rel2ids = {}
     for p in iter_question_files():
-        rel = p.relative_to(Path(VAULT)).with_suffix("").as_posix()
+        rel = p.relative_to(require_vault()).with_suffix("").as_posix()
         fm, _body, err = split_frontmatter(p.read_text(encoding="utf-8"))
         if err:
             print("[警告] %s：%s" % (rel, err))
@@ -152,7 +153,7 @@ def derive_old_ids(path_part: str) -> list:
 
 # ---------------------------------------------------------------- 扫描
 def collect_notes(args):
-    vault = Path(VAULT)
+    vault = require_vault()
     files, seen = [], set()
 
     def add(p: Path):
@@ -192,7 +193,7 @@ def classify(path_part: str, id2path: dict, rel2ids: dict, alias_to_theme: bool)
       FIX       目标不存在，可由 id 索引定位到主卷
       BROKEN    目标不存在且无法定位（需人工查）
     """
-    vault = Path(VAULT)
+    vault = require_vault()
     rel = path_part[:-3] if path_part.endswith(".md") else path_part
 
     if (vault / (rel + ".md")).exists():
@@ -221,7 +222,7 @@ def run_check(files, id2path, rel2ids, args):
         except Exception as e:
             print("[警告] 读取失败 %s：%s" % (f, e))
             continue
-        relf = f.relative_to(Path(VAULT)).as_posix() if Path(VAULT) in f.parents else str(f)
+        relf = f.relative_to(require_vault()).as_posix() if require_vault() in f.parents else str(f)
         for ln, line in enumerate(text.splitlines(), 1):
             for m in LINK_RE.finditer(line):
                 path, alias, sep = split_link(m.group(1))
@@ -273,13 +274,13 @@ def apply_fix(rows, args):
         byfile[r["file"]].append(r)
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    logdir = Path(VAULT) / LOG_DIR
+    logdir = require_vault() / LOG_DIR
     logdir.mkdir(exist_ok=True)
     logfile = logdir / ("%s.json" % ts)
     records, done = [], 0
 
     for relf, items in byfile.items():
-        p = Path(VAULT) / relf
+        p = require_vault() / relf
         text = read_text_raw(p)
         backup = text
         for r in items:
@@ -298,13 +299,13 @@ def apply_fix(rows, args):
     print("✓ 已修复 %d 处，涉及 %d 份笔记" % (done, len(byfile)))
     for r in records:
         print("  %s 行 %d" % (r["file"], r["line"]))
-    print("日志（可回滚）：%s" % logfile.relative_to(Path(VAULT)).as_posix())
+    print("日志（可回滚）：%s" % logfile.relative_to(require_vault()).as_posix())
     print("回滚命令：python check_note_links.py --rollback %s" % logfile.name)
     return done
 
 
 def cmd_rollback(args):
-    logdir = Path(VAULT) / LOG_DIR
+    logdir = require_vault() / LOG_DIR
     p = Path(args.rollback)
     if not p.is_absolute():
         p = logdir / args.rollback
@@ -317,7 +318,7 @@ def cmd_rollback(args):
         byfile[r["file"]].append(r)
     n = 0
     for relf, items in byfile.items():
-        fp = Path(VAULT) / relf
+        fp = require_vault() / relf
         text = read_text_raw(fp)
         for r in items:
             if r["new"] in text:
@@ -354,7 +355,7 @@ def cmd_cite(args):
     n = 0
     for f in files:
         text = read_text_raw(f)
-        relf = f.relative_to(Path(VAULT)).as_posix() if Path(VAULT) in f.parents else str(f)
+        relf = f.relative_to(require_vault()).as_posix() if require_vault() in f.parents else str(f)
         for ln, line in enumerate(text.splitlines(), 1):
             for m in LINK_RE.finditer(line):
                 path, _alias, _sep = split_link(m.group(1))
@@ -376,6 +377,7 @@ def cmd_cite(args):
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser(description="笔记引用体检：检测/修复研究笔记里的题目链接断链")
     ap.add_argument("--dir", action="append", help="扫描目录（相对 vault，可多次；默认 3-试题研究）")
     ap.add_argument("--file", action="append", help="直接指定笔记文件（绝对或相对 vault，可多次）")
@@ -390,7 +392,7 @@ def main():
     if args.rollback:
         sys.exit(cmd_rollback(args))
 
-    print("vault：%s" % VAULT)
+    print("vault：%s" % require_vault())
     id2path, rel2ids, _hits = build_index()
     print("题目索引：%d 个 id / %d 个文件" % (len(id2path), len(rel2ids)))
     print()

@@ -20,7 +20,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from qb_schema import (VAULT, as_list, load_lesson_units,      # noqa: E402
+import qb_schema  # noqa: E402
+from qb_bootstrap import bootstrap, require_vault  # noqa: E402
+from qb_schema import (as_list, load_lesson_units,      # noqa: E402
                        split_frontmatter, stage_roots)
 
 
@@ -36,7 +38,7 @@ def collect(book=None, vol=None):
             fm, body, err = split_frontmatter(p.read_text(encoding="utf-8"))
             if err or not isinstance(fm, dict):
                 continue
-            rel = p.relative_to(Path(VAULT)).parts
+            rel = p.relative_to(require_vault()).parts
             volname = rel[1] if len(rel) > 1 else ""
             r = {
                 "id": (as_list(fm.get("id")) or [""])[0],
@@ -70,6 +72,7 @@ def _num(v):
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser()
     ap.add_argument("--册", help="册别筛选（如 9上；多值时命中即计入）")
     ap.add_argument("--卷", help="卷名子串筛选（如 洛阳市2025-2026学年9上期末）")

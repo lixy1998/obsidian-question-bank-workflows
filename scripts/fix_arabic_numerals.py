@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 import qb_schema
+from qb_bootstrap import bootstrap
 
 SCRIPTS = Path(__file__).parent
 # 词表唯一权威 = 本技能内 BOOK_INDEX.md（随 skill 分发，不依赖其他技能/个人路径）
@@ -95,6 +96,7 @@ def scan_md(path: Path, fix_book: bool = True, unit_scope: str = "frontmatter"):
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser(
         description="统一中文数字 → 阿拉伯数字（册别 / 第X单元）；vault 取 TNOTE_VAULT 或 skill_config.json")
     ap.add_argument("--vault", default=None, help="覆盖题库库根目录（默认取环境变量或 skill_config.json）")

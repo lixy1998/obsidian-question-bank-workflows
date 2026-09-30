@@ -18,6 +18,7 @@ import json
 import sys
 from pathlib import Path
 
+from qb_bootstrap import bootstrap
 from qb_schema import (SchemaError, build_body, copy_images, dump_yaml,
                        question_dir, question_path, validate_lesson,
                        validate_record)
@@ -88,6 +89,7 @@ def write_one(rec: dict, dry_run: bool = False, force: bool = False) -> Path:
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser(description="历史题库单题生成器")
     ap.add_argument("data", help="JSON 文件路径（数组或单对象）")
     ap.add_argument("--csv", action="store_true", help="输入为 CSV")

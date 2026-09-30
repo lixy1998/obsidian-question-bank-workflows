@@ -39,7 +39,8 @@ except ImportError:
     yaml = None
 
 sys.path.insert(0, str(Path(__file__).parent))
-from qb_schema import (VAULT, as_list, is_question_file, split_frontmatter,
+from qb_bootstrap import bootstrap, require_vault
+from qb_schema import (as_list, is_question_file, split_frontmatter,
                        stage_roots)
 
 PUNCT = r"[\s，。、；：？！“”‘’（）()【】\[\]｜|·—…\-－–—〈〉《》]"
@@ -286,6 +287,7 @@ def extract_answers(lines: list) -> dict:
 # ============================================================================
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser(description="从成品卷反查题库 id，还原组卷清单",
                                  allow_abbrev=False)   # 避免 --卷 被当成 --卷名 的缩写
     ap.add_argument("--卷", required=True, help="成品卷：.docx / .md / 文字版 .pdf")

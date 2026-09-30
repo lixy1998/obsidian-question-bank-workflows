@@ -35,8 +35,9 @@ from datetime import date
 from hashlib import sha1
 from pathlib import Path
 
+from qb_bootstrap import bootstrap, require_vault
 from qb_schema import (ARCHIVE_ROOT, DEDUPE_LOG_DIR,
-                       LEGACY_ARCHIVE_ROOTS, VAULT, _yaml_scalar, as_list,
+                       LEGACY_ARCHIVE_ROOTS, _yaml_scalar, as_list,
                        authority_key, dump_yaml, is_question_file,
                        norm_for_dedupe, source_pairs, split_frontmatter,
                        stage_roots, strip_comments)
@@ -154,7 +155,7 @@ def iter_questions(only_vol: str = None) -> list:
             stem, opts = split_stem_options(fm, body)
             fp = fingerprints(stem, opts, body)
             rec = {
-                "path": p, "rel": p.relative_to(Path(VAULT)), "fm": fm,
+                "path": p, "rel": p.relative_to(require_vault()), "fm": fm,
                 "body": body, "stem": stem, "opts": opts,
                 "g3": grams(stem + "".join(opts)),
                 "nlen": len(norm_for_dedupe(stem + "".join(opts))),
@@ -449,8 +450,8 @@ def cmd_merge(args) -> None:
             img_refs.append(f"![](images/{new_name})")
         notes.append(f"《{a_primary}》{note}")
         entries.append({"file": str(ap), "id": a_primary,
-                        "archived_to": str(Path(VAULT) / ARCHIVE_ROOT
-                                           / ap.relative_to(Path(VAULT))),
+                        "archived_to": str(require_vault() / ARCHIVE_ROOT
+                                           / ap.relative_to(require_vault())),
                         "images": [{"src": str(s), "name": nm} for s, nm in local_refs],
                         "yaml_note": f"> 【一题多卷】另见《{a_primary}》（差异：{note}）"})
 
@@ -500,7 +501,7 @@ def cmd_merge(args) -> None:
             print(f"[图片] {Path(it['src']).name} → {it['name']}")
     # 归档 + 卷内清单 + 日志
     today = date.today().isoformat()
-    log_path = Path(VAULT) / DEDUPE_LOG_DIR / f"{today}.json"
+    log_path = require_vault() / DEDUPE_LOG_DIR / f"{today}.json"
     log = json.loads(log_path.read_text(encoding="utf-8")) if log_path.exists() else {"date": today, "entries": []}
     for e in entries:
         src_p = Path(e["file"])
@@ -522,7 +523,7 @@ def cmd_merge(args) -> None:
         if not ck.exists():
             ck.write_text(f"# 重复题清单 · {vol_dir.name}\n\n"
                           f"> 本卷以下题目与题库内权威版本重复，按「一题多卷」规则归档（位置 "
-                          f"`{ARCHIVE_ROOT}/{dst_p.parent.relative_to(Path(VAULT) / ARCHIVE_ROOT).as_posix()}`，"
+                          f"`{ARCHIVE_ROOT}/{dst_p.parent.relative_to(require_vault() / ARCHIVE_ROOT).as_posix()}`，"
                           f"即库内 Obsidian 回收站，可在回收站面板还原到原位）。\n"
                           f"> 题库不重复存题；需要还原本卷时按「主题 id」取题。\n\n"
                           f"| 本卷题号 | 本卷 id | 主题 id | 合并日期 |\n|---|---|---|---|\n",
@@ -619,6 +620,7 @@ def cmd_rollback(args) -> None:
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser(description="历史题库查重与一题多卷合并")
     ap.add_argument("--scan", action="store_true", help="全库查重，输出候选组")
     ap.add_argument("--check", help="录入前预检：传入待入库 JSON（数组）")

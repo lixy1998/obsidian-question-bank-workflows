@@ -36,10 +36,20 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from qb_schema import VAULT  # noqa: E402
+import qb_schema  # noqa: E402
+from qb_bootstrap import bootstrap, require_vault  # noqa: E402
 
-VAULT = Path(VAULT)
-NOTE_DIR = VAULT / "3-试题研究"
+
+def vault_dir() -> Path:
+    """vault 根目录（惰性求值：模块导入期不要求已配置，未配置时 `--help` 仍可用）。"""
+    return require_vault()
+
+
+def note_dir() -> Path:
+    """报告笔记目录：{vault}/3-试题研究"""
+    return vault_dir() / "3-试题研究"
+
+
 ROOTS = ["初中-1中考真题", "初中-2中考模拟题", "初中-3阶段测试",
          "高中-1高考真题", "高中-2高考模拟题", "高中-3阶段测试"]
 
@@ -80,15 +90,16 @@ DISTRICTS = ["涧西区", "洛龙区", "西工区", "老城区", "瀍河区", "�
 def build_volume_index():
     """卷目录索引。"""
     vols = []
+    vault = vault_dir()
     for root in ROOTS:
-        d = VAULT / root
+        d = vault / root
         if not d.is_dir():
             continue
         for vol in sorted(d.iterdir()):
             if not vol.is_dir():
                 continue
             vols.append({
-                "rel": vol.relative_to(VAULT).as_posix(),
+                "rel": vol.relative_to(vault).as_posix(),
                 "path": vol,
                 "name": vol.name,
                 "years": re.findall(r"(?:19|20)\d{2}", vol.name),
@@ -206,6 +217,7 @@ def alias_of(rel_path: str, seq: str) -> str:
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--files", nargs="*", default=None,
@@ -220,9 +232,9 @@ def main():
     all_unres = []
     all_other = []
 
-    fnames = args.files or sorted(p.name for p in NOTE_DIR.glob("*.md"))
+    fnames = args.files or sorted(p.name for p in note_dir().glob("*.md"))
     for fname in fnames:
-        p = NOTE_DIR / fname
+        p = note_dir() / fname
         if not p.is_file():
             print("[跳过] 不存在：%s" % fname)
             continue
@@ -275,7 +287,7 @@ def main():
                 if q is None:
                     unres.append((li + 1, m.group(0), "卷内无此号（%s）" % vd["name"]))
                     continue
-                rel = q.relative_to(VAULT).with_suffix("").as_posix()
+                rel = q.relative_to(vault_dir()).with_suffix("").as_posix()
                 alias = alias_of(rel, seq)
                 sep = "\\|" if in_tbl else "|"
                 plans.append({

@@ -11,7 +11,7 @@
   python verify_against_source.py --源 "<含多卷的.md>" --列出卷   # 先勘察源文件里有哪些卷
 
   --卷   卷名（须与题库目录名一致）；**源文件含多卷时必填卷次数字以定位**，如「…综合检测卷3」→ 取源标题「综合测试(三)」
-  --vault 题库根（默认读本 skill 的 scripts/skill_config.json，其次环境变量 TNOTE_VAULT）
+  --vault 题库根（优先级：--vault > 环境变量 TNOTE_VAULT > scripts/skill_config.json）
   --全部 打印所有差异（默认每题最多 --差异数 条）
 
 多卷源文件（v1.7.1 起）：单文件含多卷时各卷题号都从 1 重新开始，本脚本**自动按一级标题
@@ -35,26 +35,21 @@ import os
 import re
 import sys
 
+from qb_bootstrap import bootstrap
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL_DIR = os.path.dirname(HERE)
 
 
 def load_vault(cli_vault=None):
-    if cli_vault:
-        return cli_vault
-    env = os.environ.get('TNOTE_VAULT')
-    if env:
-        return env
-    cfg = os.path.join(HERE, 'skill_config.json')
-    if os.path.exists(cfg):
-        try:
-            data = json.load(open(cfg, encoding='utf-8'))
-            if data.get('vault'):
-                return data['vault']
-        except Exception:
-            pass
-    print('!! 未配置题库库（skill_config.json / TNOTE_VAULT / --vault）', file=sys.stderr)
-    sys.exit(2)
+    """vault 定位：--vault > TNOTE_VAULT > skill_config.json（统一走 qb_bootstrap）。
+
+    2026-09-30 前本文件有一套私有实现（优先级次序与文档相反），已收敛到
+    `qb_bootstrap.resolve_vault`，与其余脚本同一套优先级与退出码（未配置 = 2）。
+    """
+    from qb_bootstrap import resolve_vault
+
+    return resolve_vault(cli_vault)
 
 
 def split_volumes(text):
@@ -286,6 +281,7 @@ def find_answer_files(vault, juan):
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser()
     ap.add_argument('--源', dest='source', required=True, help='源文本 md（MinerU 导出或文字版）')
     ap.add_argument('--卷', dest='juan', default=None, help='卷名（与题库目录一致）；--列出卷 时可省')

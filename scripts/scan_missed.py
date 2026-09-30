@@ -18,10 +18,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from qb_bootstrap import bootstrap
 from qb_schema import as_list, split_frontmatter, stage_roots  # noqa: E402
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser()
     ap.add_argument("target", help="目标课名（子串匹配）")
     ap.add_argument("keywords", help="关键词，用 | 分隔")

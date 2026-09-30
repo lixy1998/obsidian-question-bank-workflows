@@ -51,7 +51,8 @@ import sys
 
 from pathlib import Path
 
-from qb_schema import (VAULT, is_question_file, as_list, split_frontmatter,
+from qb_bootstrap import bootstrap, require_vault
+from qb_schema import (is_question_file, as_list, split_frontmatter,
                        stage_roots, strip_comments, TYPE_LEGACY_DIRS)
 
 try:
@@ -82,7 +83,7 @@ def build_index(verbose: bool = True) -> dict:
 def vol_name_of(path: Path) -> str:
     """从题目文件路径取卷名：{vault}/{学段-类别}/{卷名}/…"""
     try:
-        rel = path.relative_to(Path(VAULT)).parts
+        rel = path.relative_to(require_vault()).parts
         return rel[1] if len(rel) > 1 else path.parent.name
     except ValueError:
         return path.parent.name
@@ -2091,6 +2092,7 @@ def export_by_volume(args) -> int:
 # ============================================================================
 
 def main():
+    bootstrap(("yaml", "docx"))
     ap = argparse.ArgumentParser(description="历史题库组卷导出器（清单驱动）")
     ap.add_argument("--清单", help="组卷清单（.yaml/.yml/.json；.txt 一行一个 id）")
     ap.add_argument("--卷", help="[兼容] 卷名；多卷用逗号分隔")

@@ -23,10 +23,15 @@ import argparse
 import sys
 from pathlib import Path
 
-from docx import Document
-from docx.table import Table
-from docx.text.paragraph import Paragraph
-from docx.oxml.ns import qn
+from qb_bootstrap import bootstrap, lazy_import
+
+# 模块级导入改走 lazy_import：缺 python-docx 时给中文安装提示（退出码 3），
+# 而不是在 main() 之前抛裸 traceback（bootstrap 的预检来不及生效）
+_docx = lazy_import("docx")
+Document = _docx.Document
+Table = _docx.table.Table
+Paragraph = _docx.text.paragraph.Paragraph
+qn = _docx.oxml.ns.qn
 
 EXT_BY_TYPE = {
     "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif",
@@ -127,6 +132,7 @@ def _table_md(table, doc, img_dir, counter):
 
 
 def main():
+    bootstrap(("docx",))
     ap = argparse.ArgumentParser(description="docx 文字版卷子 → 结构化 md + 图片提取")
     ap.add_argument("docx", help="Word 试卷路径（学生卷或卷内带答案的卷均可）")
     ap.add_argument("-o", "--out", default=None, help="输出目录（默认与 docx 同目录）")

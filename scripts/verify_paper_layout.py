@@ -23,6 +23,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from qb_bootstrap import bootstrap
+
 PT2MM = 25.4 / 72.0
 
 LEVEL_OK, LEVEL_BAD, LEVEL_MANUAL, LEVEL_OUT = "合规", "不合规", "需人工", "不承诺"
@@ -401,6 +403,7 @@ def verify_volume(vol, rpt=None):
 
 
 def main():
+    bootstrap(("yaml", "docx"))
     ap = argparse.ArgumentParser(description="试卷版式校验器（国标合规 + 结构 + 图文混排可判定项）")
     ap.add_argument("--docx", help="Word 成卷路径")
     ap.add_argument("--清单", help="组卷清单：给了就做 D1「表图完整性」比对（题库有表/有图→卷面是否也在）")

@@ -24,7 +24,13 @@ import argparse
 import sys
 from pathlib import Path
 
-import pymupdf  # PyMuPDF；venv 与主环境均已装（2026-09-14 实测 `import fitz` 通过）
+from qb_bootstrap import bootstrap, check_deps, try_import
+
+# PyMuPDF；模块级导入改走静默探测：缺包时给中文安装提示（退出码 3），
+# 而不是在 main() 之前抛裸 traceback。新版 import 名 `pymupdf`，旧版为 `fitz`。
+pymupdf = try_import("pymupdf") or try_import("fitz")
+if pymupdf is None:
+    check_deps(("pymupdf",))
 
 # Obsidian（Chromium 渲染）能直接显示的图片格式——TIFF 不在列。
 # ⚠ 2026-09-15 立：本脚本按 --out 后缀决定格式，曾有人写 .tiff 导致入库后全是破图。
@@ -32,6 +38,7 @@ DISPLAYABLE = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"}
 
 
 def main():
+    bootstrap(need=())
     ap = argparse.ArgumentParser(description="PDF 页面区域裁剪补图")
     ap.add_argument("pdf", help="官方扫描 PDF 路径")
     ap.add_argument("--page", type=int, required=True, help="页码（1 起始）")

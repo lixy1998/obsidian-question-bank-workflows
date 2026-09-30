@@ -44,12 +44,16 @@ import time
 from ctypes import wintypes
 from pathlib import Path
 
-import numpy as np
+from qb_bootstrap import bootstrap, lazy_import
+
+# 模块级导入改走 lazy_import：缺 numpy 时给中文安装提示（退出码 3），
+# 而不是在 main() 之前抛裸 traceback（bootstrap 的预检来不及生效）
+np = lazy_import("numpy")
 
 # ------------------------------------------------------------
 # 配置
 # ------------------------------------------------------------
-CONFIG_FILE = Path(__file__).parent / "skill_config.json"
+# vault 定位统一走 qb_bootstrap.resolve_vault（--vault > TNOTE_VAULT > skill_config.json）
 
 # Obsidian 能直接显示的格式（Chromium 渲染）；不在列的一律视为待修
 DISPLAYABLE = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"}
@@ -61,21 +65,15 @@ WK_REF = re.compile(r"!\[\[([^\]]+)\]\]")        # ![[images/x.jpg|300]]
 MD_IMG_ANY = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")   # 任意 md 图片引用（含 alt 非空 / URL 含空格）
 
 
-def get_vault(cli_vault=None):
-    """vault 优先级：--vault > 环境变量 TNOTE_VAULT > scripts/skill_config.json"""
-    if cli_vault:
-        return Path(cli_vault)
-    v = os.environ.get("TNOTE_VAULT")
-    if not v and CONFIG_FILE.exists():
-        try:
-            v = json.loads(CONFIG_FILE.read_text(encoding="utf-8")).get("vault")
-        except Exception:
-            v = None
-    if not v:
-        print("[失败] 未配置题库库：请加 --vault <路径>，或先跑 setup.py 写 skill_config.json",
-              file=sys.stderr)
-        raise SystemExit(1)
-    return Path(v)
+def get_vault(cli_vault=None) -> Path:
+    """vault 优先级：--vault > 环境变量 TNOTE_VAULT > scripts/skill_config.json。
+
+    2026-09-30 起统一走 qb_bootstrap.resolve_vault（与其余脚本同一套优先级与退出码），
+    本函数仅保留为返回 Path 的薄封装。
+    """
+    from qb_bootstrap import resolve_vault
+
+    return Path(resolve_vault(cli_vault))
 
 
 # ------------------------------------------------------------
@@ -470,6 +468,7 @@ def recycle_verify(paths, rec_root=None):
 # 主流程
 # ------------------------------------------------------------
 def main():
+    bootstrap(("yaml", "cv2", "numpy", "PIL"))
     ap = argparse.ArgumentParser(description="题库图片巡检与修复（不可显示格式 + 非标准引用形态）")
     ap.add_argument("--vault", default=None, help="题库库根目录（默认读 skill_config.json）")
     ap.add_argument("--fix", action="store_true", help="进入修复模式（默认只巡检）")

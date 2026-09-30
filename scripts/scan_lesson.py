@@ -29,7 +29,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from qb_schema import VAULT, as_list, split_frontmatter, stage_roots  # noqa: E402
+import qb_schema  # noqa: E402
+from qb_bootstrap import bootstrap, require_vault  # noqa: E402
+from qb_schema import as_list, split_frontmatter, stage_roots  # noqa: E402
 
 STAT_FIELDS = ["题型", "小节", "知识点", "核心素养", "素养层次水平", "关键能力",
                "难度", "年份", "考区", "来源"]
@@ -47,6 +49,7 @@ def hit_any(values, targets, scope: str) -> bool:
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser()
     ap.add_argument("--lesson", default="",
                     help="课名（子串匹配，逗号分隔多课＝专题聚合，如「第2课 古代两河流域,第3课 古代埃及」）")
@@ -78,7 +81,7 @@ def main():
             if p.name.startswith("_"):
                 continue
             if targets_vol:  # 卷范围收窄（v2.1）：卷名 = 路径第 2 层目录名
-                parts = p.relative_to(Path(VAULT)).parts
+                parts = p.relative_to(require_vault()).parts
                 volname = parts[1] if len(parts) > 1 else ""
                 if not any(v in volname for v in targets_vol):
                     continue

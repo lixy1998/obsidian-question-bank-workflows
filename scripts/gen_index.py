@@ -16,11 +16,17 @@ import sys
 from pathlib import Path
 
 import qb_schema
+from qb_bootstrap import bootstrap, require_vault
 
 BOOK = qb_schema.BOOK_INDEX_PATH          # 词表路径（随 skill 分发，勿硬编码绝对路径）
-OUT = Path(qb_schema.VAULT) / "1-MoC-索引"  # TNote 索引目录
 TARGET = dict(qb_schema.BOOK_INDEX_VERSION)  # 册别 -> 词表版本节（7上~9下 初中六册）
 DATA_SOURCES = [f"初中-{c}" for c in qb_schema.CATEGORIES["初中"]]
+
+
+def out_dir() -> Path:
+    """索引输出目录（惰性求值：qb_schema.VAULT 改用模块级 __getattr__ 后，
+    模块导入期不再触碰 vault，未配置时也能 `--help`）。"""
+    return require_vault() / "1-MoC-索引"
 # 学史方法栏目组标题：由独立索引文档承载，册索引跳过（避免生成空查询块）
 SKIP_GROUPS = {"学史方法"}
 
@@ -122,6 +128,7 @@ def build_index(册, 版本):
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser(
         description="从 BOOK_INDEX.md 重建 TNote 1-MoC-索引 六册试题索引（幂等：内容不变则不产生差异）")
     ap.add_argument("--dry-run", action="store_true", help="只预览，不写盘")
@@ -130,6 +137,7 @@ def main():
     args = ap.parse_args()
 
     books = load_books()
+    OUT = out_dir()
     OUT.mkdir(parents=True, exist_ok=True)
     for 册, 版本 in TARGET.items():
         if 册 not in books or 版本 not in books[册]:
