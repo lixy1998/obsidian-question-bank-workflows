@@ -43,7 +43,17 @@ def get_vault() -> str:
     return v.rstrip("/\\")
 
 
-VAULT = get_vault()
+def __getattr__(name):
+    """惰性导出 VAULT（2026-09-30 改）。
+
+    此前 `VAULT = get_vault()` 写在模块顶层：未配置题库库时**导入即抛异常**，
+    导致 `--help`、单测、纯工具函数都无法使用（实测 `scan_lesson.py --help` 直接
+    RuntimeError）。改为模块级 __getattr__ 惰性求值——`from qb_schema import VAULT`
+    的既有写法与语义保持不变，但只有真正访问时才要求配置。
+    """
+    if name == "VAULT":
+        return get_vault()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # ---- 受控词表 ----
 STAGES = ["初中", "高中"]
@@ -73,9 +83,23 @@ REQUIRED_FIELDS = ["id", "册别", "单元", "课", "题型", "难度",
 
 
 def stage_roots() -> list:
-    """vault 根下所有题库目录（初中-* / 高中-*）。"""
-    return sorted(p for p in Path(VAULT).iterdir()
+    """vault 根下所有题库目录（初中-* / 高中-*）。
+
+    未配置 / 目录不存在时经 `qb_bootstrap.require_vault()` 给出中文引导并退出码 2
+    （而不是裸抛 RuntimeError）——本函数是绝大多数脚本第一个真正需要 vault 的动作，
+    故把友好报错收敛在这里，调用方不必各写一套 try/except。
+    """
+    from qb_bootstrap import require_vault  # 延迟导入避免与 qb_bootstrap 形成环
+
+    return sorted(p for p in require_vault().iterdir()
                   if p.is_dir() and re.match(r"^(初中|高中)-", p.name))
+
+
+# 题库目录名（学段-序号类别），题目文件**必须**位于其下：
+#   {vault}/{学段-类别}/{卷名}/{卷名}_{题型}/{序号}.md
+# `is_question_file` 据此判定，避免把 vault 内非题库目录（0-Template-模板、1-MoC-索引、
+# 2-命题与评价、3-试题研究 等）下的同名结构文件误判为题目。
+STAGE_DIR_RE = re.compile(r"^(初中|高中)-")
 
 
 class SchemaError(ValueError):
@@ -320,7 +344,7 @@ def validate_lesson(rec: dict) -> None:
 
 def question_dir(rec: dict) -> Path:
     """按记录生成题目所在目录（vault 根：{学段}-{类别}/{卷名}/{卷名}_{题型}）。"""
-    d = Path(VAULT) / f"{rec['学段']}-{rec['类别']}" / rec["卷名"]
+    d = Path(get_vault()) / f"{rec['学段']}-{rec['类别']}" / rec["卷名"]
     return d / f"{rec['卷名']}_{rec['题型']}"
 
 
@@ -476,14 +500,25 @@ AUTHORITY_PATTERNS = [(0, r"一模|二模|三模|联考|模拟"), (1, r"期末")
 
 
 def is_question_file(p) -> bool:
-    """题库题目文件判定：排除 README、导出卷（_学生版/_教师版）与下划线前缀辅助文件
-    （如 `_重复题清单.md`）；归档区（库内回收站 `.trash/`）不在 初中-*/高中-* 下，无需额外排除。"""
+    """题库题目文件判定。
+
+    判据（2026-09-30 收紧）：文件名合法 **且** 路径位于题库目录（`{vault}/{学段-类别}/…`）之下。
+
+    此前只判文件名，把 vault 内 `0-Template-模板/历史试题模板.md` 等 3 个模板文件也
+    算成题目，全库统计虚增（实测 2629 vs 真实 2626），且模板示例 id `2026河南中考-01`
+    与真题 id 相撞（实测「同一 id 出现在多个文件」1 例即由此产生）。
+    文件名判据保持原样（排除 README、`_` 前缀辅助文件、导出卷）。
+    ⚠ **库内回收站 `.trash/` 下的归档件仍返回 True**（它们保持着题库内相对路径）——
+    `check_note_links.py` 正是靠这个判定扫描归档件、反推旧 id。是否排除归档区由调用方决定：
+    遍历用 `stage_roots()`（只含 初中-*/高中-*，天然不含 `.trash`）。
+    """
     p = Path(p)
     if p.name == "README.md" or p.name.startswith("_"):
         return False
     if p.name.endswith(("_学生版.md", "_教师版.md", "_命题说明.md")):
         return False
-    return True
+    # 路径判据：任一层目录名命中「初中-…/高中-…」即视为题库内文件
+    return any(STAGE_DIR_RE.match(part) for part in p.parts)
 
 
 def authority_key(rec: dict, path=None) -> tuple:
