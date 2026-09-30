@@ -9,6 +9,46 @@
 
 ---
 
+---
+
+## 2026-09-30 · 🧩 拆分 `export_student_paper.py`（2210 → 1324 行，拆出 `scripts/paperkit/`）
+
+**缘起**：用户裁定「不拆单体脚本」的顾虑在补齐 39 条回归测试（含 Word 版式护栏）后已消除，遂按既定方案拆分。
+
+**成果**：`scripts/paperkit/` 12 个模块，主文件只剩 CLI 与 docx 渲染编排。
+
+| 模块 | 行数 | 职责 |
+|---|---|---|
+| `paths.py` | 45 | 题库索引 `build_index`、卷名 `vol_name_of`、题号 `norm_no`、图片命名空间 `img_ns` |
+| `manifest.py` | 105 | 清单加载 / 条目归一 / 题号定位（含「卷名-题号」兜底） |
+| `images.py` | 116 | 五类图片引用识别、打包、改写 |
+| `markup.py` | 135 | 文本净化 `clean`、表格/图片摘除、选项拆分 |
+| `slots.py` | 80 | 占位符与作答空位 `find_answer_slot`、选项重排、`opts_md` |
+| `sections.py` | 67 | 题型判定 `is_choice`、分值 `sub_scores`/`blanks_for`、大题标题、分节标记 |
+| `spec.py` | 381 | 命题说明数据加工（`spec_lines` 237 行 + 表格单元函数） |
+| `md_render.py` | 103 | md 学生卷 / 教师卷渲染 |
+| `balance.py` | 129 | 答案分布诊断与均衡方案 |
+| `checkup.py` | 80 | 卷面体检 |
+| `docx_kit.py` | 78 | Word 布局常量 + **图片装箱计算**（原为 `render_docx` 内的闭包） |
+| `__init__.py` | 13 | 包说明与依赖方向 |
+
+依赖方向单向：`paths → manifest → {images, markup, slots} → {sections, spec, balance, checkup} → {md_render, docx_kit}`，无循环导入（有测试守着）。
+
+**收益**
+1. **纯函数可单测**：`_ar/_fit/_auto_single_w/_auto_right_w`（图片宽高比 → 装箱宽度、宽幅图铺满版心 vs 普通图回落基准宽）原先藏在 499 行的 `render_docx` 闭包里、无法单独验证；现已下沉为 `docx_kit` 模块级函数，新增 **11 条单测**覆盖（含「命令行固定宽优先」「靠右环绕上限」「读不到图时按 1.5 兜底」）。
+2. **改一处不再找半天**：原先 `spec_lines` / `render_docx` / 答题卡三类渲染混在一个文件里，改答题卡字号要翻 1000 行；现在按职责分文件。
+
+**回归护栏（拆分全程使用）**
+- `tests/test_qb.py` **50 条**（拆分前 39 → 新增 11）：含 Word 卷/命题说明/答题卡出卷、`verify_paper_layout --docx` 版式合规、md 与 docx 同源题干不丢、学生卷无答案、`paperkit/` 模块清单一致性与可独立导入。
+- `tests/_snapshot.py`：固定工具题库出 **6 个产物**（md/Word 卷、命题说明、独立与卷末答题卡），对 docx **逐部件哈希比对**（跳过时间戳部件）。每一步拆分后都必须「与基线完全一致」。
+
+**过程中的一次错误与纠正（留档）**
+- 先把 `render_docx` 的嵌套 `setrun/para/run` 与模块级 `card_setrun/card_run/card_para` 统一到 `docx_kit`，结果**基线报出答题卡与正式卷的 `word/document.xml` 均变化**——python-docx 写属性的顺序与取值（`space_before` 是否写、`keep_together` 写 False 还是省略、`w:ind` 是否出现）都进 XML，即版面被无意改动。
+- 遂**回退该统一**，仅保留已验证零差异的图片函数下沉；`docx_kit.py` 末尾留有「待办：Word 原语尚未统一」并写明已探明的对齐要点（正式卷路径总是写 `space_before`/`left_indent`/`keep_together`，答题卡路径不写；写入顺序须与各自原实现一致）。
+- 教训：**合并复制品前先量化输出差异**，不要假设「逻辑等价 ⇒ 产物等价」。
+
+---
+
 ## 2026-09-30 · 🆕 `gen_index.py` 索引覆盖高中 7 册（六册 → 13 册）
 
 **缘起**：用户指出 `gen_index.py` 只索引初中六册，高中三册（纲要上下、选必1~3）与选修1/2 没有索引。

@@ -205,8 +205,12 @@ def main():
         n_groups = text.count("\n## ")
         n_blocks = text.count("```dataview")
         if args.dry_run:
+            # 行尾无关比较：Obsidian 打开过的索引会被规范化成 CRLF，而本脚本写 LF——
+            # 逐字节比会把「仅行尾不同」误报成「将有变动」（实测纲要上/纲要下即此）。
+            same = (old is not None
+                    and old.replace("\r\n", "\n") == text.replace("\r\n", "\n"))
             print(f"[预览] {fp.name} ｜ 分组 {n_groups} ｜ Dataview 块 {n_blocks} ｜ "
-                  f"{'与现状一致' if old == text else '将有变动'}")
+                  f"{'与现状一致' if same else '将有变动'}")
             continue
         fp.write_text(text, encoding="utf-8")
         print(f"[生成] {fp.name} ｜ 分组 {n_groups} ｜ Dataview 块 {n_blocks}")

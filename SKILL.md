@@ -60,7 +60,7 @@ author: 教历史的史知行
 | `gen_problem.py` | JSON → 单题 md（支持 `--csv` / `--dry-run` / `--force`） |
 | `scan_questions.py` | 全库校验（必填/枚举/课名/正文/多值 id/定位字段对齐）；`--dump` 输出全量元数据供检索；`--json` 供流水线 |
 | `dedupe_questions.py` | 查重与一题多卷合并：`--scan` / `--check` / `--merge` / `--list-merged` / `--rollback` |
-| `export_student_paper.py` | 组卷导出（清单驱动）：`--清单` 一条命令出 md 卷 / Word 卷（`--docx`，默认同出答题卡）/ `--模式 命题说明` / `--均衡选项` / `--体检`；兼容旧用法 `--卷` + `--only` |
+| `export_student_paper.py` | 组卷导出（清单驱动）：`--清单` 一条命令出 md 卷 / Word 卷（`--docx`，默认同出答题卡）/ `--模式 命题说明` / `--均衡选项` / `--体检`；兼容旧用法 `--卷` + `--only`。**渲染与加工逻辑已拆入 `scripts/paperkit/` 包**（本文件保留 docx 渲染、答题卡、卷级导出与 CLI） |
 | `backtrace_paper.py` | 从成品卷（docx/md/pdf 文字版）反查题库 id、还原组卷清单，输出可直接喂 `export_student_paper.py` |
 | `verify_paper_layout.py` | 试卷版式校验：`--docx` 查字号/行距/字体/页面尺寸/图片/答案分页；`--卷` 查结构层 |
 | `verify_against_source.py` | 录入后回归自检：入库正文 ↔ 源文本归一化逐题比对，支持单文件多卷；退出码 1 可阻断流水线 |

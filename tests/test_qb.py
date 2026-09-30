@@ -14,6 +14,7 @@
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -38,6 +39,13 @@ CLI_SCRIPTS = [
 ]
 LIB_MODULES = ["qb_schema.py", "qb_bootstrap.py"]
 
+# export_student_paper.py 拆出的内部模块包（新增/删除模块必须同步这里）
+PAPERKIT_MODULES = [
+    "__init__.py", "paths.py", "manifest.py", "images.py", "markup.py",
+    "slots.py", "sections.py", "spec.py", "md_render.py", "balance.py",
+    "checkup.py", "docx_kit.py",
+]
+
 # 测试临时工作区放在 skill 内（tests/_tmp）：沙箱的系统临时目录在退出清理时会触发
 # WinError 5；放工作区内可确保可写可删（目录已入 .gitignore）。
 TMP_ROOT = HERE / "_tmp"
@@ -57,6 +65,24 @@ def sub_env(vault=None):
     if vault is not None:
         env["TNOTE_VAULT"] = str(vault)
     return env
+
+
+def _docx_all_text(path):
+    """docx 全文（拼所有 XML 部件后去标签）——用于断言渲染内容不丢。
+
+    直接读 zip 内 XML，不依赖 python-docx，便于跨环境稳定。
+    """
+    import zipfile
+    parts = []
+    with zipfile.ZipFile(path) as z:
+        for name in z.namelist():
+            if name.endswith(".xml") and ("document" in name or "header" in name
+                                          or "footer" in name):
+                parts.append(z.read(name).decode("utf-8", "replace"))
+    joined = "".join(parts)
+    # <w:t> 里的文字才是可见文本；再整体去标签以兜底
+    texts = re.findall(r"<w:t[^>]*>(.*?)</w:t>", joined, re.S)
+    return re.sub(r"<[^>]+>", "", "".join(texts)) if texts else re.sub(r"<[^>]+>", "", joined)
 
 
 def q(序号="01", 题型="选择题", **over):
@@ -343,7 +369,153 @@ class TestEndToEnd(TempVaultMixin, unittest.TestCase):
         self.assertEqual(json.loads(r.stdout)["total"], 1, "模板文件被计入题目总数")
 
 
-class TestScriptsHealth(unittest.TestCase):
+class TestDocxRender(TempVaultMixin, unittest.TestCase):
+    """Word 卷渲染护栏（拆分 export_student_paper.py 前的安全网）。
+
+    拆分前后这些断言必须始终成立：能出卷、题干不丢、学生卷无答案、版式校验通过。
+    """
+
+    def _manifest(self):
+        self.make_question(序号="01")
+        self.make_question(序号="02", 答案="B",
+                           题干="甲骨文主要出土于河南安阳，它主要反映了(　　)")
+        mf = self.vault / "清单.yaml"
+        mf.write_text("卷名: 测试卷\n标题: 2026—2027学年 测试卷\n"
+                      "题目:\n  - 2026测试卷-01\n  - 2026测试卷-02\n", encoding="utf-8")
+        return mf
+
+    def test_docx_学生卷_出卷且版式合规(self):
+        mf = self._manifest()
+        out = self.vault / "卷_学生版.docx"
+        self.run_cli("export_student_paper.py", "--清单", str(mf),
+                     "--模式", "学生", "--docx", str(out), expect=0)
+        self.assertTrue(out.exists(), "未生成 Word 卷")
+        self.assertGreater(out.stat().st_size, 5000, "Word 卷过小，疑渲染失败")
+        r = self.run_cli("verify_paper_layout.py", "--docx", str(out), "--清单", str(mf))
+        self.assertEqual(r.returncode, 0,
+                         "版式校验不通过（拆分引入渲染回归）：\n%s" % r.stdout[-1500:])
+        self.assertIn("合规", r.stdout)
+
+    def test_docx_命题说明卷_出卷且版式合规(self):
+        mf = self._manifest()
+        out = self.vault / "卷_命题说明.docx"
+        self.run_cli("export_student_paper.py", "--清单", str(mf),
+                     "--模式", "命题说明", "--docx", str(out), expect=0)
+        self.assertTrue(out.exists(), "未生成命题说明 Word")
+        r = self.run_cli("verify_paper_layout.py", "--docx", str(out))
+        self.assertEqual(r.returncode, 0, "命题说明版式校验不通过：\n%s" % r.stdout[-1500:])
+
+    def test_docx_与md同源_题干不丢且学生卷无答案(self):
+        """同一清单出 md 与 docx，题干关键词必须都在；学生卷不得出现答案。"""
+        mf = self._manifest()
+        md = self.vault / "卷_学生版.md"
+        dx = self.vault / "卷_学生版.docx"
+        self.run_cli("export_student_paper.py", "--清单", str(mf),
+                     "--模式", "学生", "--输出", str(md), expect=0)
+        self.run_cli("export_student_paper.py", "--清单", str(mf),
+                     "--模式", "学生", "--docx", str(dx), expect=0)
+        md_text = md.read_text(encoding="utf-8")
+        docx_text = _docx_all_text(dx)
+        for kw in ("司母戊鼎", "甲骨文", "集体协作的精神"):
+            self.assertIn(kw, md_text, "md 卷缺关键词 %s" % kw)
+            self.assertIn(kw, docx_text, "docx 卷缺关键词 %s（渲染丢题）" % kw)
+        self.assertNotIn("答案：C", docx_text, "学生卷 Word 里出现了答案")
+
+    def test_docx_答题卡_随卷产出(self):
+        """默认随 --docx 同出**独立**答题卡文件（`{卷名}_答题卡.docx`）。"""
+        mf = self._manifest()
+        out = self.vault / "卷_学生版.docx"
+        r = self.run_cli("export_student_paper.py", "--清单", str(mf),
+                         "--模式", "学生", "--docx", str(out), expect=0)
+        cards = list(self.vault.glob("*_答题卡.docx"))
+        self.assertEqual(len(cards), 1, "应产出 1 个独立答题卡；stdout=%s" % r.stdout[-400:])
+        text = _docx_all_text(cards[0])
+        self.assertIn("答题卡", text)
+        self.assertIn("姓名", text)                      # 答题卡必有姓名栏
+
+
+class TestPaperkitPure(unittest.TestCase):
+    """paperkit 纯函数单测——拆分的主要收益：原先藏在闭包里的计算现在能直接测。"""
+
+    def setUp(self):
+        sys.path.insert(0, str(SCRIPTS))
+        from paperkit import docx_kit
+        from paperkit.sections import is_choice, sub_scores
+        from paperkit.spec import effective_answer, short_lesson
+        self.kit = docx_kit
+        self.is_choice = is_choice
+        self.sub_scores = sub_scores
+        self.effective_answer = effective_answer
+        self.short_lesson = short_lesson
+
+    # ---------- docx_kit：图片装箱计算 ----------
+    def _img(self, w, h):
+        """在 tests/_tmp 造一张纯色 PNG，返回路径（Pillow 不可用则跳过测试）。"""
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow 不可用")
+        TMP_ROOT.mkdir(parents=True, exist_ok=True)
+        p = TMP_ROOT / ("img_%dx%d_%s.png" % (w, h, uuid.uuid4().hex[:6]))
+        Image.new("RGB", (w, h), "white").save(p)
+        self.addCleanup(lambda: p.unlink(missing_ok=True))
+        return p
+
+    def test_宽高比与读不到时兜底(self):
+        wide = self._img(1200, 300)
+        self.assertAlmostEqual(self.kit.aspect_ratio(wide), 4.0, places=2)
+        self.assertEqual(self.kit.aspect_ratio("不存在的文件.png"), 1.5)
+
+    def test_装箱宽度按高度上限收缩(self):
+        wide = self._img(1200, 300)          # ar = 4
+        # 框 155×30：按宽算需高 155/4=38.75 > 30 → 收缩到 30*4=120
+        self.assertAlmostEqual(self.kit.fit_width(wide, 155.0, 30.0), 120.0, places=1)
+        # 框 155×100：宽度不受限 → 155
+        self.assertAlmostEqual(self.kit.fit_width(wide, 155.0, 100.0), 155.0, places=1)
+        # 下限 10mm
+        self.assertGreaterEqual(self.kit.fit_width(wide, 155.0, 1.0), 10.0)
+
+    def test_单图宽度_宽幅图铺满普通图回落基准(self):
+        wide = self._img(1200, 300)          # ar=4 ≥ 2.6
+        normal = self._img(400, 300)         # ar≈1.33 < 2.6
+        self.assertAlmostEqual(self.kit.auto_single_w(wide, 60.0),
+                               self.kit.MAX_W, places=1)
+        self.assertAlmostEqual(self.kit.auto_single_w(normal, 60.0),
+                               self.kit.BASE_W, places=1)
+
+    def test_单图宽度_命令行固定宽优先(self):
+        wide = self._img(1200, 300)
+        self.assertAlmostEqual(self.kit.auto_single_w(wide, 60.0, img_width_mm=100.0),
+                               100.0, places=1)
+
+    def test_靠右环绕宽度_不超过上限(self):
+        wide = self._img(1200, 300)
+        normal = self._img(400, 300)
+        self.assertLessEqual(self.kit.auto_right_w(wide), self.kit.RIGHT_MAX_W + 0.01)
+        self.assertLessEqual(self.kit.auto_right_w(normal), self.kit.RIGHT_W + 0.01)
+        self.assertGreaterEqual(self.kit.auto_right_w(normal, max_h=1.0), 20.0)
+
+    def test_relativeHeight递增(self):
+        a, b = self.kit.next_rel_h(), self.kit.next_rel_h()
+        self.assertEqual(b, a + 1)
+
+    # ---------- sections / spec ----------
+    def test_选择题判定与分值均分(self):
+        self.assertTrue(self.is_choice({"fm": {"题型": "选择题"}}))
+        self.assertFalse(self.is_choice({"fm": {"题型": "材料解析题"}}))
+        self.assertEqual(self.sub_scores("（1）甲（2分）（2）乙（3分）", 5, 2), [2, 3])
+        self.assertEqual(self.sub_scores("无分值设问", 5, 2), [3, 2])   # 均分且余数给前
+
+    def test_答案换算与课名缩写(self):
+        rec = {"fm": {"答案": "A"}, "选项序": [2, 1, 3, 4]}
+        self.assertEqual(self.effective_answer(rec), "B")             # A 位换到第 2 位
+        self.assertEqual(self.effective_answer({"fm": {"答案": "A"}}), "A")
+        self.assertEqual(self.short_lesson("第4课 夏商西周王朝的更替"), "第4课")
+        self.assertEqual(self.short_lesson("活动课 新时代社会生活的巨大变化"),
+                         "活动课 新时代社会生活的巨大变化")
+
+
+
     """脚本可用性：CLI 自检 + 库模块可编译（防「导入期求值 / 语法错误」回归）。"""
 
     def test_每个CLI脚本能打印help(self):
@@ -360,6 +532,28 @@ class TestScriptsHealth(unittest.TestCase):
         actual = sorted(p.name for p in SCRIPTS.glob("*.py"))
         listed = sorted(CLI_SCRIPTS + LIB_MODULES)
         self.assertEqual(actual, listed, "scripts/ 与测试清单不一致（新增/删除脚本请同步本文件）")
+
+    def test_paperkit模块清单与实际一致(self):
+        """paperkit/ 下的模块同样要登记（拆分产生的新模块不能悄悄溜过）。"""
+        actual = sorted(p.name for p in (SCRIPTS / "paperkit").glob("*.py"))
+        self.assertEqual(actual, sorted(PAPERKIT_MODULES),
+                         "paperkit/ 与实际不符（新增/删除模块请同步本文件）")
+
+    def test_paperkit每个模块能编译(self):
+        files = [str(SCRIPTS / "paperkit" / n) for n in PAPERKIT_MODULES]
+        r = subprocess.run([PY, "-m", "py_compile", *files],
+                           capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_paperkit可独立导入(self):
+        """包内模块不得因循环导入而炸（依赖方向是单向的）。"""
+        code = ("import sys; sys.path.insert(0, r'%s');"
+                "import importlib;"
+                "[importlib.import_module('paperkit.' + m) for m in %r];"
+                "print('ok')" % (str(SCRIPTS), [n[:-3] for n in PAPERKIT_MODULES]))
+        r = subprocess.run([PY, "-c", code], capture_output=True, text=True,
+                           encoding="utf-8", cwd=str(SCRIPTS))
+        self.assertEqual(r.returncode, 0, r.stderr[-600:])
 
     def test_每个脚本能编译(self):
         r = subprocess.run([PY, "-m", "py_compile", *[str(SCRIPTS / n) for n in CLI_SCRIPTS + LIB_MODULES]],
