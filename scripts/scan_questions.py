@@ -48,7 +48,7 @@ def _empty(v) -> bool:
 
 # 郑林 9 要素编号格式（A1-C3）：关键能力主词表；徐奉先 3×3 为旧标注（存量迁移未完成，仅提示）
 ZHENG_RE = re.compile(r"^[ABC][1-3]-")
-# 主词表白名单（唯一权威源：references/素养能力词表.md 第三章「郑林三层次九要素」）
+# 主词表白名单（唯一权威源：references/素养能力标签体系.md 第三章「郑林三层次九要素」）
 # 校验策略分流：编号格式不符（徐奉先旧标注等）→ 提示级；编号合法但要素名不在白名单 → 问题级
 ZHENG_SET = {"A1-识记", "A2-说明", "A3-概括", "B1-比较", "B2-分析", "B3-评价",
              "C1-建构", "C2-考证", "C3-探究"}
@@ -197,7 +197,7 @@ def scan(roots, only_vol: str = None):
             for x in ks:
                 if ZHENG_RE.match(x) and x not in ZHENG_SET:
                     problems.append(
-                        f"[关键能力非主词表 {x}] {rel}（郑林 9 要素见 references/素养能力词表.md 第三章）")
+                        f"[关键能力非主词表 {x}] {rel}（郑林 9 要素见 references/素养能力标签体系.md 第三章）")
             # 正文非空
             if not body.strip():
                 problems.append(f"[正文为空] {rel}")
@@ -271,7 +271,7 @@ def main():
                 print(f"  {name:<10} {c}")
     if old_ks_count:
         print(f"\nℹ 关键能力旧格式提示：{old_ks_count} 题仍为徐奉先 3×3 旧标注"
-              f"（郑林 A1-C3 迁移未完成，未计入问题；迁移映射见 references/素养能力词表.md 第三章）")
+              f"（郑林 A1-C3 迁移未完成，未计入问题；迁移映射见 references/素养能力标签体系.md 第三章）")
     if locator_hits:
         print(f"\nℹ 定位字段提示：{len(locator_hits)} 题的「课的所属单元/册别」未出现在本题 单元/册别 字段"
               f"（多值录入兜底，提示级、未计入问题）")
