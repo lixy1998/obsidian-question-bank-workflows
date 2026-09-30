@@ -5,6 +5,36 @@
 
 ---
 
+## 2026-10-01 · 🧭 脚本入口约定（`bootstrap` 返回值 / `require_vault` 顺序）写进文档
+
+**缘起**：用户就日志里的一条教训发问——「`bootstrap(vault=…)` 必须配 `want_vault=True`
+才返回路径；取库路径统一用 `require_vault(cli_vault)`，且要放在参数校验之后——这条
+skills 中是否有必要体现？」复检发现**不只是"缺文档"，而是文档里有错**：
+
+| 位置 | 问题 |
+|---|---|
+| `qb_bootstrap.py` 模块 docstring 用法示例 | `vault = bootstrap(vault=args.vault)` —— **漏 `want_vault=True`，照抄必得 `None`**（本次踩坑的直接诱因） |
+| `bootstrap()` docstring | 只说「want_vault=True 时」返回，与上面的示例自相矛盾 |
+| `require_vault()` docstring | 未提「须排在参数校验之后」 |
+| `SKILL.md` 脚本清单表 | 只有「把 `bootstrap()` 放进入口」，未说库路径该用哪个函数 |
+
+**改动**（只动 docstring 与文档，**脚本逻辑零改动**——20 个脚本本就全走 `require_vault()`）
+
+1. `scripts/qb_bootstrap.py` 模块 docstring：修正用法示例（`bootstrap()` + `require_vault(args.vault)`），
+   补「取库路径一律用 `require_vault()`，别写 `bootstrap(vault=…)`」，并给**推荐骨架**：
+   `ap.parse_args()` → `bootstrap()` → 自行校验参数 → `require_vault(args.vault)`。
+2. `scripts/qb_bootstrap.py::require_vault()` docstring：补调用位置约束与理由——未配置 vault 的环境下，
+   「字段不在白名单」这类参数报错会先被本函数的 `exit=2` 盖掉，用户看到的提示与真实病因无关
+   （`edit_fields.py` 的白名单测试正是踩在这个坑上暴露的）。
+3. `scripts/qb_bootstrap.py::bootstrap()` docstring：明确「**仅** `want_vault=True` 时返回路径，
+   否则 `None`」并指向 `require_vault()`。
+4. `SKILL.md` 脚本清单表 `qb_bootstrap.py` 行：加「新增脚本骨架」与两条硬规矩。
+   **未单开「全局陷阱」条目**——该约束只在新增/改脚本时相关，与日常录题/组卷/校验流程无关，
+   单开会稀释陷阱区信噪比。
+
+**验证**：`python tests/test_qb.py` → **57 条全绿**（纯文档改动，逻辑未变）；导入校验
+docstring 关键词命中（`require_vault` 含「参数校验之后」、`bootstrap` 含「want_vault=True」）。
+
 ---
 
 ---

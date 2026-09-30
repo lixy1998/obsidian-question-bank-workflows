@@ -59,7 +59,7 @@ author: 教历史的史知行
 | 脚本 | 用途 | 何时用 |
 |---|---|---|
 | `qb_schema.py` | 公共模块：受控词表（BOOK_INDEX 课名+单元层级+学史方法+高中选修专题）、路径规则、字段校验、`split_frontmatter`、权威序、`is_question_file`、惰性 `VAULT` | 写任何脚本/改字段规则前先看它；报「课名不在词表」「册别非法」时改的是它的词表解析 |
-| `qb_bootstrap.py` | 启动引导：依赖预检（缺包→中文提示，退出码 3）、管道输出强制 UTF-8、`resolve_vault()` / `require_vault()` 唯一 vault 定位入口（--vault > `TNOTE_VAULT` > skill_config.json） | 脚本报「缺少 Python 依赖」或「未配置题库库」时，看它的提示；新增脚本时把 `bootstrap()` 放进入口 |
+| `qb_bootstrap.py` | 启动引导：依赖预检（缺包→中文提示，退出码 3）、管道输出强制 UTF-8、`resolve_vault()` / `require_vault()` 唯一 vault 定位入口（--vault > `TNOTE_VAULT` > skill_config.json） | 脚本报「缺少 Python 依赖」或「未配置题库库」时，看它的提示；**新增脚本按骨架写**：入口首行 `bootstrap()` → 自行校验参数 → `require_vault(args.vault)` 取库路径。⚠ 两条硬规矩：① **取库路径必须用 `require_vault()`**，别写 `bootstrap(vault=…)`（默认 `want_vault=False` 返回 `None` → `Path(None)` 报错）；② **`require_vault` 必须排在参数校验之后**，否则未配置 vault 的环境下「字段不在白名单」这类参数报错会先被 `exit=2` 盖掉 |
 | `setup.py` | 首次配置引导：写入 vault + 建库（六类别目录 + 复制模板） | 首次使用、或换机器后脚本报「未配置题库库」（见 `workflow/00-init.md`） |
 | `gen_problem.py` | JSON → 单题 md（支持 `--csv` / `--dry-run` / `--force`） | 已备好录入 JSON，要生成单题 md 时（录入流程第 2 步） |
 | `scan_questions.py` | 全库校验（必填/枚举/课名/正文/多值 id/定位字段对齐）；`--dump` 输出全量元数据供检索；`--json` 供流水线 | 每次录入/合并/改字段后；报「⚠ 问题」即须修，「ℹ 提示」须逐条补齐 |
