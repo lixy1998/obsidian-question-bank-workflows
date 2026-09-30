@@ -113,6 +113,10 @@ def parse_groups(lines):
         if not name:
             continue
         if indent == 0:
+            if name.startswith("附录"):
+                # 「附录 朝代表、大事年表」这类非课内容不建索引节（用户裁定：不需要）；
+                # 词表里也不应再写这类行，此处是防回归守卫
+                continue
             if name.startswith("活动课"):
                 groups.append([name, [name]])  # 活动课本身即课条目
             else:

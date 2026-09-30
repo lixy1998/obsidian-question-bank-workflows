@@ -624,6 +624,15 @@ class TestIndexGeneration(unittest.TestCase):
         self.assertIn("### 专题1.1", text)
         self.assertIn('contains(课, "专题1.1', text)
 
+    def test_不生成附录节(self):
+        """「附录 朝代表/大事年表」这类非课内容不建索引节（用户裁定：不需要）。
+
+        词表里已删除该行；gen_index 另有守卫，防止以后重新加回来又冒出一堆空节。
+        """
+        for name in ("纲要上-试题索引.md", "纲要下-试题索引.md"):
+            text = (self.vault / "1-MoC-索引" / name).read_text(encoding="utf-8")
+            self.assertNotIn("## 附录", text, "%s 里出现了附录节" % name)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
