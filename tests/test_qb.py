@@ -644,6 +644,10 @@ class TestReadmeTree(unittest.TestCase):
 
     README = SKILL / "README.md"
 
+    # 本机文件：README 树里列出（帮用户知道它在哪），但**已 gitignore**，
+    # 因此新克隆的仓库里合法地不存在——校验「树→磁盘」时豁免。
+    LOCAL_ONLY = {"skill_config.json"}
+
     def _tree_entries(self):
         text = self.README.read_text(encoding="utf-8")
         m = re.search(r"## 目录结构\n\n```\n(.*?)```", text, re.S)
@@ -668,6 +672,8 @@ class TestReadmeTree(unittest.TestCase):
         missing = []
         for e in self._tree_entries():
             name = e.rstrip("/")
+            if name in self.LOCAL_ONLY:
+                continue                     # 本机文件，未初始化时不存在属正常
             pool = dirs if e.endswith("/") else leaves
             if name not in pool:
                 missing.append(e)
