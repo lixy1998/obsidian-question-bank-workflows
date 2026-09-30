@@ -19,6 +19,7 @@
 - ✅ **五个流程闭环**：存（录入）→ 校（校验）→ 取（组卷）→ 研（**多维度考查方向分析** / **册别考试范围分析**）+ **反查**（只有成品卷时还原组卷清单），分析流程自带取题、漏标反查与聚合统计脚本
 - ✅ **图片格式守卫**：**Obsidian 不渲染 TIFF/EMF/WMF**（存了就是破图）。录入侧 `read_docx.py`（docx 内嵌图）、`pull_pdf_images.py`（PDF 裁剪）已自动挡格式、转 PNG 落盘；存量图片用 `fix_image_formats.py` 巡检修复——转 jpg/png（连续调→JPG 更小、真透明/二值→PNG）、**按路径同步改 md 引用**、原图移入回收站，默认只读、`--fix --apply` 才动手
 - ✅ **依赖声明与启动引导**：`requirements.txt` 声明全部依赖，脚本入口经 `qb_bootstrap.py` 做依赖预检（缺包给中文提示，退出码 3）、管道输出强制 UTF-8、vault 定位统一（--vault > `TNOTE_VAULT` > 配置文件）
+- ✅ **册别索引全覆盖**：`gen_index.py` 由词表生成 **13 册**试题索引（初中 6 + 高中 7，含纲要上下/选必1-3/选修1-2），每课一个 Dataview 查询块，新题自动流入
 - ✅ **脚本全自动化**：JSON → 生成单题 md → 全库校验 → 组卷导出，一条命令链
 
 ## 目录结构
@@ -64,7 +65,7 @@ Obsidian历史题库搭建与组卷/
     ├── verify_against_source.py # 录入后回归自检（入库正文 ↔ 源文本逐题比对，支持单文件多卷）
     ├── check_note_links.py     # 笔记引用体检（断链 / 指向 .trash 的不合规引用，可改指主卷）
     ├── linkify_citations.py    # 报告补链（出处表述 → 库内 wikilink，默认只读）
-    ├── gen_index.py            # 由 BOOK_INDEX 生成六册试题索引
+    ├── gen_index.py            # 由 BOOK_INDEX 生成试题索引（初中 6 册 + 高中 7 册 = 13 册）
     ├── read_docx.py            # docx 结构化提取（免 MinerU）
     ├── pull_pdf_images.py      # 从官方 PDF 裁剪补图（输出格式守卫：TIFF 自动转 PNG）
     ├── fix_image_formats.py    # 图片格式巡检修复（不可显示格式 → jpg/png，同步改引用，原图入回收站）
@@ -73,6 +74,8 @@ Obsidian历史题库搭建与组卷/
     ├── scan_missed.py          # 流程四：关键词反查（正文含词但未标该课）
     ├── scan_volume.py          # 流程五：册别/卷别聚合（范围判定 + 课次热度三梯队）
     └── BOOK_INDEX.md           # 课名受控词表（初中六册 7上~9下 + 高中纲要/选必 + 选修1-2 两模块共 14 专题）
+└── tests/
+    └── test_qb.py              # 离线回归（35 条）：临时题库自建，不碰真库
 ```
 
 ## 快速开始

@@ -66,7 +66,7 @@ author: 教历史的史知行
 | `verify_against_source.py` | 录入后回归自检：入库正文 ↔ 源文本归一化逐题比对，支持单文件多卷；退出码 1 可阻断流水线 |
 | `check_note_links.py` | 笔记引用体检：检出断链与指向 `.trash/` 的不合规引用，反推旧 id 改指主卷；`--fix` / `--apply` / `--rollback` / `--cite <id>` |
 | `linkify_citations.py` | 报告补链：把正文/表格里的出处表述批量转成库内 wikilink；默认只读，`--apply` 执行 |
-| `gen_index.py` | 由 BOOK_INDEX 生成 `1-MoC-索引` 六册试题索引；`--dry-run` 预览，检出词表外标题默认中止该册 |
+| `gen_index.py` | 由 BOOK_INDEX 生成 `1-MoC-索引` 试题索引（**初中 6 册 + 高中 7 册 = 13 册**；高中节标题→册别映射复用 `qb_schema.GAOZHONG_SECTIONS`，选修1/2 用课标专题名做课名）；`--dry-run` 预览，检出词表外标题默认中止该册 |
 | `read_docx.py` | 文字版 docx 结构化提取（免 MinerU） |
 | `pull_pdf_images.py` | 从官方 PDF 裁剪补图（输出格式守卫：不可显示格式自动转 PNG） |
 | `fix_image_formats.py` | 图片格式巡检修复：不可显示格式 → jpg/png，同步改引用，原图入回收站；默认只读，`--fix --apply` 落盘 |
@@ -153,6 +153,8 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
 - `workflow/03-check.md` — 流程三 校验与词表维护（scan、词表校准、索引维护），含校验铁律与陷阱
 - `workflow/04-angle-analysis.md` — 流程四 多维度考查方向分析（三口径取题、漏标反查、**9 节发布稿结构**（含「对标中考」固定节：同层外地卷＋上位中考两层）、**§6b 发布化规范**（纯发布式出处、术语转译、表格窄化、配图、合规）、报告落点 `3-试题研究/`），含分析铁律与陷阱
 - `workflow/05-range-analysis.md` — 流程五 册别/学段考试范围分析（范围判定、课次热度三梯队、材料题主线、学困生提分方案六节输出），含范围分析陷阱
+- `tests/test_qb.py` — 离线回归测试（临时题库自建，不碰真库）：`python tests/test_qb.py`
+- `requirements.txt` — Python 依赖声明（核心 pyyaml + 可选 docx/pymupdf/pptx/numpy/cv2/Pillow）
 - `references/分析基线-洛阳.md` — 实测对照基线（洛阳9上期末课次热度/卷面结构/分值口径、单课侧基线），分析时先比对基线
 - `references/fields.md` — 字段详解 + JSON 模板（选择题/材料题/论述题）+ 目录规则 + 卷名命名约定
 - `references/book_index.md` — BOOK_INDEX 结构与维护、9上9下核实状态
