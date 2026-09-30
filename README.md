@@ -47,9 +47,11 @@ Obsidian历史题库搭建与组卷/          # 仓库工作区：D:\WorkDaily-�
 │   ├── linkify_citations.py      # 报告补链（出处表述 → 库内 wikilink，默认只读）
 │   ├── gen_index.py              # 由 BOOK_INDEX 生成试题索引（初中 6 册 + 高中 7 册 = 13 册）
 │   ├── read_docx.py              # docx 结构化提取（免 MinerU；只接 .docx）
+│   ├── import_from_md.py         # 源 md → 录入 JSON：批量回填题干/选项（链路B 第二步）
 │   ├── pull_pdf_images.py        # 从官方 PDF 裁剪补图（输出格式守卫：TIFF 自动转 PNG）
 │   ├── fix_image_formats.py      # 图片格式巡检修复（不可显示格式 → jpg/png，同步改引用，原图入回收站）
 │   ├── fix_arabic_numerals.py    # 中文数字 → 阿拉伯数字批量转换
+│   ├── edit_fields.py            # 定位/标注字段批量编辑（删/加/去重，保持 YAML 原写法）
 │   ├── scan_lesson.py            # 流程四：按课/单元/专题取题统计（--口径 主考/兼涉/全涉）
 │   ├── scan_missed.py            # 流程四：关键词反查（正文含词但未标该课）
 │   ├── scan_volume.py            # 流程五：册别/卷别聚合（范围判定 + 课次热度三梯队）

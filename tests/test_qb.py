@@ -32,8 +32,9 @@ sys.path.insert(0, str(SCRIPTS))
 # 没有 argparse，**不要**对它们执行（历史事故：无 argparse 的脚本会把 `--help` 当普通参数执行 main）。
 CLI_SCRIPTS = [
     "backtrace_paper.py", "check_note_links.py", "dedupe_questions.py",
-    "export_student_paper.py", "fix_arabic_numerals.py", "fix_image_formats.py",
-    "gen_index.py", "gen_problem.py", "linkify_citations.py", "pull_pdf_images.py",
+    "edit_fields.py", "export_student_paper.py", "fix_arabic_numerals.py",
+    "fix_image_formats.py", "gen_index.py", "gen_problem.py", "import_from_md.py",
+    "linkify_citations.py", "pull_pdf_images.py",
     "read_docx.py", "scan_lesson.py", "scan_missed.py", "scan_questions.py",
     "scan_volume.py", "setup.py", "verify_against_source.py", "verify_paper_layout.py",
 ]
@@ -697,6 +698,80 @@ class TestReadmeTree(unittest.TestCase):
         for l in top[:-1]:
             self.assertTrue(l.startswith("├──"), "非末位顶层条目应为 ├──：%s" % l[:24])
         self.assertTrue(top[-1].startswith("└──"), "末位顶层条目应为 └──：%s" % top[-1][:24])
+
+
+class Test录入与整治辅助(TempVaultMixin, unittest.TestCase):
+    """import_from_md.py（源 md → 录入 JSON）与 edit_fields.py（字段批量整治）。
+
+    ⚠ 两个模块顶层 `from qb_schema import …`，而 qb_schema 在导入期解析 vault，
+    故一律走**子进程 + TNOTE_VAULT 指向临时库**，不在测试进程内直接 import。
+    """
+
+    def _write(self, rel, text):
+        p = self.vault / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def test_import_from_md_回填题干与选项(self):
+        md = self._write("_src.md", (
+            "××中学 2026 届历史\n\n"
+            "注意事项：\n\n1. 答题前请填好姓名、考号。\n\n2. 选择题用 2B 铅笔涂卡。\n\n"
+            "3. 考试结束后交回试卷。\n\n"
+            "一、选择题\n\n"
+            "1．秦朝统一后在全国推行郡县制。这表明（　　）\n\n"
+            "A．分封制瓦解　B．中央集权加强\n\n"
+            "2．下图为某文物。\n\n![](images/001.jpg)\n\nA．甲　B．乙　C．丙　D．丁\n\n"
+            "参考答案\n\n1．B 2．A\n"))
+        js = self._write("_in.json", json.dumps(
+            [{"序号": "01", "题型": "选择题"}, {"序号": "02", "题型": "选择题"}], ensure_ascii=False))
+        r = self.run_cli("import_from_md.py", "--源", str(md), "--json", str(js), expect=0)
+        out = json.loads(js.read_text(encoding="utf-8"))
+        # 注意事项段的「1. 2. 3.」编号行不得覆盖真题块
+        self.assertEqual(out[0]["题干"], "秦朝统一后在全国推行郡县制。这表明（　　）")
+        self.assertEqual(out[0]["选项"], ["分封制瓦解", "中央集权加强"])
+        # 图片按题号规范且保留原扩展名
+        self.assertIn("![](images/2_1.jpg)", out[1]["题干"])
+        self.assertEqual(out[1]["选项"], ["甲", "乙", "丙", "丁"])
+        # 答案区不入选
+        self.assertNotIn("参考答案", json.dumps(out, ensure_ascii=False))
+        self.assertIn("回填 2 题", r.stdout)
+
+    def test_edit_fields_去重与清单模式(self):
+        f1 = self._write("初中-1中考真题/2026郑州一模/2026郑州一模_选择题/01.md", (
+            "---\nid: 2026郑州一模-01\n册别: [8上, 8上]\n"
+            "单元: [第1单元 中国开始沦为半殖民地半封建社会, 第2单元 早期现代化的初步探索和民族危机加剧]\n"
+            "课: [第5课 甲午中日战争与列强瓜分中国狂潮]\n题型: 选择题\n---\n\n题干（　　）\n"))
+        f2 = self._write("初中-1中考真题/2026郑州一模/2026郑州一模_选择题/02.md", (
+            "---\nid: 2026郑州一模-02\n册别:\n- 9下\n- 9下\n"
+            "单元:\n- 第5单元 第二次世界大战后的世界变化\n"
+            "课:\n- 第16课 冷战的发生与两极格局的形成\n题型: 选择题\n---\n\n题干（　　）\n"))
+        bk = TMP_ROOT / ("bk_" + uuid.uuid4().hex[:8])
+        # ① --去重：流式与块状各一
+        self.run_cli("edit_fields.py", "--去重", "册别", "--apply", "--backup", str(bk), expect=0)
+        t1 = f1.read_text(encoding="utf-8").replace("\r\n", "\n")
+        self.assertIn("册别: [8上]\n", t1)
+        t2 = f2.read_text(encoding="utf-8").replace("\r\n", "\n")
+        # 块状去重后，紧跟的字段名不得被吸附到末项（历史事故：漏换行 → `- 9下册别…`）
+        self.assertIn("册别:\n- 9下\n单元:", t2)
+        self.assertNotIn("- 9下册别", t2)
+        # 正文零改动
+        self.assertIn("题干（　　）\n", t1)
+        # ② --op 清单：删冗余单元 + 补漏标课
+        ops = [{"文件": "初中-1中考真题/2026郑州一模/2026郑州一模_选择题/01.md",
+                "删": {"单元": ["第1单元 中国开始沦为半殖民地半封建社会"]},
+                "加": {"课": ["第4课 洋务运动和边疆危机"]}}]
+        opf = self._write("_ops.json", json.dumps(ops, ensure_ascii=False))
+        self.run_cli("edit_fields.py", "--op", str(opf), "--apply", "--backup", str(bk), expect=0)
+        t1 = f1.read_text(encoding="utf-8").replace("\r\n", "\n")
+        self.assertNotIn("第1单元 中国开始沦为半殖民地半封建社会", t1)
+        self.assertIn("第4课 洋务运动和边疆危机", t1)
+        self.assertIn("第2单元 早期现代化的初步探索和民族危机加剧", t1)
+
+    def test_edit_fields_字段白名单外拒绝(self):
+        r = self.run_cli("edit_fields.py", "--去重", "答案")
+        self.assertNotEqual(r.returncode, 0, "白名单外字段应拒绝执行")
+        self.assertIn("白名单", r.stderr + r.stdout)
 
 
 if __name__ == "__main__":

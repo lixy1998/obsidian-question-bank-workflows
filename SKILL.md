@@ -72,6 +72,8 @@ author: 教历史的史知行
 | `linkify_citations.py` | 报告补链：把正文/表格里的出处表述批量转成库内 wikilink；默认只读，`--apply` 执行 | 报告正文里满是「2024 年河南中考 第 25 题」纯文本、想批量变成可点链接时 |
 | `gen_index.py` | 由 BOOK_INDEX 生成 `1-MoC-索引` 试题索引（**初中 6 册 + 高中 7 册 = 13 册**；高中节标题→册别映射复用 `qb_schema.GAOZHONG_SECTIONS`，选修1/2 用课标专题名做课名）；`--dry-run` 预览，检出词表外标题默认中止该册 | BOOK_INDEX 词表改动后（新课加入/课名修订）；**日常录入与组卷不用跑** |
 | `read_docx.py` | 文字版 docx 结构化提取（免 MinerU）；**只接 `.docx`，不处理 pptx**——PPT 需先转 docx/PDF | 拿到文字版 .docx 试卷要提取结构化正文与内嵌图时 |
+| `import_from_md.py` | **源 md → 录入 JSON**：按题号批量回填「题干」「选项」（自动剔除卷首注意事项段、截断答案区、切选项、规范图片引用；`--skip` 保留手写题） | 已有提取好的 md、要把题干选项灌进录入 JSON 而免逐题复制时（链路B 批量录入第二步） |
+| `edit_fields.py` | 定位/标注字段批量编辑：`--去重 <字段>`（扫库）或 `--op <清单.json>`（删/加/去重），**保持 YAML 原写法**；默认 dry-run | 批量清字段重复项、删冗余单元、补漏标课等**字段整治**时 |
 | `pull_pdf_images.py` | 从官方 PDF 裁剪补图（输出格式守卫：不可显示格式自动转 PNG） | docx 缺图（如选项被吞成 A.B.C.D.），要从官方扫描 PDF 裁图补上时 |
 | `fix_image_formats.py` | 图片格式巡检修复：不可显示格式 → jpg/png，同步改引用，原图入回收站；默认只读，`--fix --apply` 落盘 | 图片不显示/打不开、出卷丢图、或批量录入后想做图片巡检时 |
 | `fix_arabic_numerals.py` | 中文数字 → 阿拉伯数字（仅改册别/单元字段，正文不动）；默认 dry-run | 册别/单元字段里混着中文数字（第X单元写成「第五单元」类）需要统一时 |
@@ -120,7 +122,8 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
        `^{key}: \[[^\]]*\]\s*\n` ｜ `^{key}:\s*\n(?:[ \t]*- [^\n]*\n?)*`
      - **校验判据**：`单元` 在同单元多课时会去重，**项数常少于 `课`**；正确判据是「每课所属单元出现在 `单元` 列表」，判两者等长会出大量假阳性（项数一致性由 `scan_questions.py` 的配对提示单独给出）。
      - `小节` 保留重复（一课多子目），项数可多于 `课`。
-     - **改完必做三重验证**：YAML 可解析 + 正文与备份逐字节比对零改动 + `scan_questions.py` 零报错。
+     - **块状渲染末尾必须保留换行**（2026-09-30 实测定案）：替换区间已含最后一个 `- 值\n`，渲染时若 `rstrip('\n')` 会把**下一字段名吸附到末项**（`- 9下册别:`）→ YAML 解析成 dict、`scan_questions.py` 直接崩（`'dict' object has no attribute 'startswith'`）。**批量增删改字段一律用 `scripts/edit_fields.py`**（内置 YAML 类型复检 + 默认 dry-run + 备份），不要手写正则替换。
+     - **改完必做三重验证**：YAML 可解析（且点名字段确为字符串列表）+ 正文与备份逐字节比对零改动 + `scan_questions.py` 零报错。
 4. **图片格式：Obsidian 根本不显示 TIFF/EMF/WMF**：Chromium 不渲染 TIFF，库里存了 `*.tiff` 就是一排破图。
    - **源头守卫**：`read_docx.py`（docx 内嵌图）与 `pull_pdf_images.py`（按 `--out` 后缀决定格式）均加**格式守卫**，不在白名单（jpg/jpeg/png/gif/webp/bmp/svg）的自动转 PNG。
    - **存量走** `scripts/fix_image_formats.py`：默认**只读巡检**，`--fix` 看计划，`--fix --apply` 才动手（引用规范化 → 格式转换 → 同步改引用 → 校验 → 原图入回收站，可 `--keep-original` 保留）。
