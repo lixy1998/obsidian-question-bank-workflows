@@ -30,12 +30,15 @@
    - `workflow/00-init.md`：依赖清单去掉 `python-pptx`，并列明 PPT 无内置脚本
    - `requirements.txt`：**删除 `python-pptx>=0.6` 声明**（代码从不 import，留着会误导）
    - `SKILL.md`：Python 依赖行与 References 同步；`read_docx.py` 行标注「只接 `.docx`」
-2. **顺带修掉两处易误读/失效引用**：
+2. **顺带修掉一处易误读引用**：
    - `01-input.md` 里 MinerU 的「支持 PDF/图片/Word/PPT/网页」补注「**这是 MinerU 的能力**，非本 skill 内置」
-   - `04-angle-analysis.md` 原写「生成 PPT（走 `tencent-pptx`）」——**该技能名不存在**（本机实为
-     `ppt-master` / `guizang-ppt-skill` / `pptx-slide-clone`），改为「交由 **PPT 生成类技能**（如 `ppt-master` / `guizang-ppt-skill`）」
    - `references/book_index.md` 的「已校验出并修正的映射（2026-08-22，**fix_2025_mapping.py** 18 处）」
      指向已不存在的一次性脚本 → 改为「共 18 处」
+   - ⚠ **`04-angle-analysis.md` 的 `tencent-pptx` 一度被我误判为「不存在的技能名」并改掉，已改回**：
+     它是 **WorkBuddy 内置技能**，位于 `~/.workbuddy/plugins/cache/workbuddy-builtin/tencent-pptx/skills/tencent-pptx/`
+     （功能即「创建专业 PowerPoint 演示文稿」）。**核实技能是否存在时不能只搜 `~/.agents/skills` 与
+     `~/.workbuddy/skills`，必须同时查 `~/.workbuddy/plugins/cache/workbuddy-builtin/`**——
+     内置插件不在前两处，只查它们会把真实技能误判为死引用。
 3. **`SKILL.md` 脚本清单加第三列「何时用」**（20 行全部补齐）：从「这是什么」升级为
    「什么现象/什么目标 → 跑哪个脚本」，20 个平铺脚本不必靠记忆。
 4. **目录规范新增两条硬规则**（回应「scripts 是否该建子文件夹」）：
