@@ -378,5 +378,58 @@ class TestScriptsHealth(unittest.TestCase):
                              "%s 在未配置 vault 时 --help 失败：%s" % (name, r.stderr[-300:]))
 
 
+class TestIndexGeneration(unittest.TestCase):
+    """gen_index.py：13 册索引（初中 6 + 高中 7）都能从词表生成。
+
+    ⚠ 词表只有一份（skill 内 `scripts/BOOK_INDEX.md`），gen_index 没有 --book-index 参数；
+    本测试只把 **vault** 指向临时目录，词表仍读真实词表——因此它也顺带校验了
+    「真实词表的每个册别节都能被 load_books 解析出来」。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        TMP_ROOT.mkdir(parents=True, exist_ok=True)
+        cls.vault = TMP_ROOT / ("idx_" + uuid.uuid4().hex[:10])
+        os.makedirs(cls.vault / "1-MoC-索引", exist_ok=True)
+        cls.r = subprocess.run([PY, str(SCRIPTS / "gen_index.py")],
+                               capture_output=True, text=True, encoding="utf-8",
+                               cwd=str(SCRIPTS), env=sub_env(cls.vault))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.vault, ignore_errors=True)
+
+    def test_命令成功(self):
+        self.assertEqual(self.r.returncode, 0,
+                         "gen_index 失败：%s\n%s" % (self.r.stdout[-500:], self.r.stderr[-500:]))
+        self.assertNotIn("[跳过]", self.r.stdout, "有册别节未被解析：%s" % self.r.stdout)
+
+    def test_生成13个册别索引(self):
+        import qb_schema
+        want = list(qb_schema.BOOK_INDEX_VERSION) + list(qb_schema.GAOZHONG_SECTIONS.values())
+        self.assertEqual(len(want), 13)
+        got = {p.stem.replace("-试题索引", "")
+               for p in (self.vault / "1-MoC-索引").glob("*-试题索引.md")}
+        self.assertEqual(set(want), got, "缺失或多余：%s" % (set(want) ^ got))
+
+    def test_高中索引查高中目录(self):
+        text = (self.vault / "1-MoC-索引" / "纲要上-试题索引.md").read_text(encoding="utf-8")
+        self.assertIn('FROM "高中-1高考真题" OR "高中-2高考模拟题" OR "高中-3阶段测试"', text)
+        self.assertNotIn("初中-", text)
+        self.assertIn('contains(册别, "纲要上")', text)
+        self.assertIn("### 第1课", text)              # 课块来自词表
+        self.assertNotIn("①", text)                  # 子目行不应生成查询块
+
+    def test_初中索引查初中目录(self):
+        text = (self.vault / "1-MoC-索引" / "7上-试题索引.md").read_text(encoding="utf-8")
+        self.assertIn('FROM "初中-1中考真题" OR "初中-2中考模拟题" OR "初中-3阶段测试"', text)
+        self.assertNotIn("高中-", text)
+
+    def test_选修索引用专题课名(self):
+        text = (self.vault / "1-MoC-索引" / "选修1-试题索引.md").read_text(encoding="utf-8")
+        self.assertIn("### 专题1.1", text)
+        self.assertIn('contains(课, "专题1.1', text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
