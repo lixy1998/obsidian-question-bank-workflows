@@ -22,9 +22,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from qb_bootstrap import bootstrap, require_vault
 from qb_schema import (BOOKS, DIFFICULTIES, REQUIRED_FIELDS, TYPES,
                        TYPE_ALIASES,
-                       VAULT, SchemaError, as_list, is_question_file,
+                       SchemaError, as_list, is_question_file,
                        split_frontmatter, stage_roots, validate_lesson,
                        load_lesson_units, METHOD_PREFIX)
 
@@ -66,7 +67,7 @@ def dump(roots, only_vol: str = None):
             if only_vol and only_vol not in p.parts:
                 continue
             fm, _, _ = split_frontmatter(p.read_text(encoding="utf-8"))
-            rel = p.relative_to(Path(VAULT)).parts
+            rel = p.relative_to(require_vault()).parts
             ids = as_list(fm.get("id"))
             out.append({
                 "id": fm.get("id"),
@@ -88,6 +89,7 @@ def scan(roots, only_vol: str = None):
     merged = []       # [(rel, 主卷 id, [别名 id, ...]), ...] 一题多卷题
     primary_ids = {}  # 主卷 id -> rel（用于别名交叉校验）
     locator_hits = []  # 定位字段提示：[rel, 缺单元 set, 缺册别 set]（提示级，不计入 problems）
+    pair_hits = []     # 多值配对提示：[rel, 无课承接的单元 set, 册别重复项 set]（提示级）
     # 课名 -> [(册别, 单元全称), ...]（多值录入兜底：课的所属单元/册别应写进本题对应字段）
     lesson2loc = {}
     for (b, name), u in load_lesson_units().items():
@@ -99,7 +101,7 @@ def scan(roots, only_vol: str = None):
             if only_vol and only_vol not in p.parts:
                 continue  # --卷 过滤：只保留路径中含该卷名的文件
             total += 1
-            rel = p.relative_to(Path(VAULT))
+            rel = p.relative_to(require_vault())
             fm, body, err = split_frontmatter(p.read_text(encoding="utf-8"))
             if err:
                 problems.append(f"[{err}] {rel}")
@@ -155,6 +157,37 @@ def scan(roots, only_vol: str = None):
                     miss_b.add(pick[0])
             if miss_u or miss_b:
                 locator_hits.append((str(rel), miss_u, miss_b))
+            # 多值定位字段配对提示（v1.23.0）：三项「同序平铺」的机器可校验部分
+            #   ① 单元项数 > 课项数 —— 多出的单元没有任何课承接
+            #   ② 册别有重复项 —— 同册重复声明
+            # 说明：单元列表**允许**多于课（单元卷/跨册综合题常把上级单元一并写入），
+            # 也允许单元顺序与课不同序；这两类写法自由**不报**，避免海量假阳性。
+            _book_list = [str(x) for x in as_list(fm.get("册别"))]
+            _unit_list = [str(x) for x in as_list(fm.get("单元"))]
+            _lesson_list = [str(x) for x in as_list(fm.get("课"))]
+            pair_u, pair_b = set(), set()
+            if len(_unit_list) > len(_lesson_list) and len(_unit_list) > 1:
+                seen_u = []
+                _unresolved = False
+                for _k in _lesson_list:
+                    if str(_k).startswith(METHOD_PREFIX):
+                        continue          # 学史方法类目不占单元，不计入
+                    _locs = lesson2loc.get(str(_k), [])
+                    if not _locs:
+                        _unresolved = True    # 词表查不到该课 → 判据不可靠，本项不报
+                        break
+                    for _b, _u in _locs:
+                        if _u not in seen_u:
+                            seen_u.append(_u)
+                spare = [u for u in _unit_list if u not in seen_u]
+                # 有单元没有任何课承接（spare 非空）→ 多值三项已无法对齐
+                if (not _unresolved) and spare:
+                    pair_u.add("、".join(dict.fromkeys(spare)))
+            if len(_book_list) != len(set(_book_list)):
+                pair_b.add("册别有重复项：" + "、".join(
+                    b for b, c in Counter(_book_list).items() if c > 1))
+            if pair_u or pair_b:
+                pair_hits.append((str(rel), pair_u, pair_b))
             # 关键能力校验（v1.8.2）：
             #   ① 编号格式不符（徐奉先旧格式/无标注）→ 提示级，题级计数
             #   ② 编号合法但要素名不在郑林 9 要素白名单（如 A2-理解、C3-感悟）→ 问题级
@@ -190,10 +223,11 @@ def scan(roots, only_vol: str = None):
                     f"[别名未归档 {a}] {rel}（该 id 仍作为独立题存在于 {primary_ids[a]}，"
                     f"应跑 dedupe_questions.py --merge 归档别名题）")
     stats["一题多卷::多值id题数"] = len(merged)
-    return total, stats, problems, old_ks_count, merged, locator_hits
+    return total, stats, problems, old_ks_count, merged, locator_hits, pair_hits
 
 
 def main():
+    bootstrap()
     ap = argparse.ArgumentParser(description="历史题库健康检查")
     ap.add_argument("--卷", help="只看指定卷")
     ap.add_argument("--json", action="store_true", help="输出 JSON")
@@ -202,27 +236,29 @@ def main():
 
     roots = stage_roots()
     if not roots:
-        print(f"[失败] 未找到题库目录：{VAULT} 根下应存在 初中-* / 高中-*", file=sys.stderr)
+        print(f"[失败] 未找到题库目录：{require_vault()} 根下应存在 初中-* / 高中-*", file=sys.stderr)
         sys.exit(1)
 
     if args.dump:
         dump(roots, args.卷)
         return
 
-    total, stats, problems, old_ks_count, merged, locator_hits = scan(roots, args.卷)
+    total, stats, problems, old_ks_count, merged, locator_hits, pair_hits = scan(roots, args.卷)
 
     if args.json:
         print(json.dumps({"total": total, "stats": dict(stats),
                           "problems": problems, "old_ks_count": old_ks_count,
                           "locator_hits": [{"文件": r, "缺单元": sorted(u), "缺册别": sorted(b)}
                                            for r, u, b in locator_hits],
+                          "pair_hits": [{"文件": r, "无课承接的单元": sorted(u), "册别异常": sorted(b)}
+                                        for r, u, b in pair_hits],
                           "merged": [{"文件": str(r), "主卷id": pid, "别名id": al}
                                      for r, pid, al in merged]},
                          ensure_ascii=False, indent=2))
         return
 
     print(f"═══ 历史题库健康检查 ═══")
-    print(f"题库路径：{VAULT}（{' '.join(r.name for r in roots)}）")
+    print(f"题库路径：{require_vault()}（{' '.join(r.name for r in roots)}）")
     print(f"题目总数：{total}")
     if merged:
         print(f"一题多卷：{len(merged)} 题含别名 id（多卷收录同一题，已归档别名题）")
@@ -248,12 +284,24 @@ def main():
             print(f"  {rel}：{'；'.join(parts)}")
         if len(locator_hits) > 8:
             print(f"  …另有 {len(locator_hits) - 8} 题（--json 可看全量）")
+    if pair_hits:
+        print(f"\nℹ 多值配对提示：{len(pair_hits)} 题的「册别/单元/课」三项未对齐"
+              f"（两处机器可判的硬伤：单元项数多于课、册别有重复项；提示级、未计入问题）")
+        for rel, spare_u, dup_b in pair_hits[:8]:
+            parts = []
+            if dup_b:
+                parts.append("；".join(sorted(dup_b)))
+            if spare_u:
+                parts.append("无课承接的单元 " + "、".join(sorted(spare_u)))
+            print(f"  {rel}：{'；'.join(parts)}")
+        if len(pair_hits) > 8:
+            print(f"  …另有 {len(pair_hits) - 8} 题（--json 可看全量）")
     if problems:
         print(f"\n⚠ 问题 {len(problems)} 项：")
         for p in problems:
             print(f"  {p}")
-    else:
-        print("\n✓ 无问题")
+        sys.exit(1)
+    print("\n✓ 无问题")
 
 
 if __name__ == "__main__":
