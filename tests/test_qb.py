@@ -33,7 +33,8 @@ sys.path.insert(0, str(SCRIPTS))
 CLI_SCRIPTS = [
     "backtrace_paper.py", "check_note_links.py", "dedupe_questions.py",
     "edit_fields.py", "export_student_paper.py", "fix_arabic_numerals.py",
-    "fix_image_formats.py", "gen_index.py", "gen_problem.py", "import_from_md.py",
+    "fix_image_formats.py", "fix_quote_to_plain.py", "fix_table_render.py",
+    "gen_index.py", "gen_problem.py", "import_from_md.py",
     "linkify_citations.py", "pull_pdf_images.py",
     "read_docx.py", "scan_lesson.py", "scan_missed.py", "scan_questions.py",
     "scan_volume.py", "setup.py", "verify_against_source.py", "verify_paper_layout.py",
