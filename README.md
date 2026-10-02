@@ -53,6 +53,7 @@ Obsidian历史题库搭建与组卷/          # 仓库工作区：D:\WorkDaily-�
 │   ├── fix_arabic_numerals.py    # 中文数字 → 阿拉伯数字批量转换
 │   ├── fix_table_render.py       # md 表格不渲染两类根因修复（补空行 / 引用块内转 HTML）
 │   ├── fix_quote_to_plain.py     # 报告真题引用块去 `>` 降为普通段落 + HTML 表格还原 md
+│   ├── fix_item_spacing.py       # 真题块段落间距压缩（题内紧连、题间留白、表格前空行保护）
 │   ├── edit_fields.py            # 定位/标注字段批量编辑（删/加/去重，保持 YAML 原写法）
 │   ├── scan_lesson.py            # 流程四：按课/单元/专题取题统计（--口径 主考/兼涉/全涉）
 │   ├── scan_missed.py            # 流程四：关键词反查（正文含词但未标该课）
