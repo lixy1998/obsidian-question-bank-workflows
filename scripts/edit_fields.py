@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""edit_fields.py — 批量编辑题目 YAML 的定位/标注字段（删 / 加 / 去重，保持原写法）。
+"""edit_fields.py — 批量编辑题目 YAML 的定位/标注字段（删 / 加 / 去重 / 新增字段，保持原写法）。
 
 用法：
   # 模式一 · 去重（扫库）
@@ -9,13 +9,16 @@
 
 字段白名单（均为 YAML list）：册别 / 单元 / 课 / 小节 / 知识点 / 核心素养 / 素养层次水平 / 关键能力
 **保持原写法**——流式 `key: [a, b]` 与块状 `key:\\n- a` 分别按原风格渲染（不改动未被点名的字段）。
+**新增字段**——`加` 点名的字段若整份 frontmatter 里不存在，则**按规范字段顺序**插到前一字段之后
+（顺序 id→册别→单元→课→小节→知识点→核心素养→素养层次水平→关键能力→题型→…），风格沿用前驱字段
+（标量前驱 → 用流式）。`删`/`去重` 仍要求字段已存在，找不到只报提示、不新建。
 
 操作清单格式（数组；「文件」为**库内相对路径**）：
 ```
 [
   {"文件": "初中-1中考真题/2026河南中考/2026河南中考_选择题/08.md",
    "删": {"单元": ["第7单元 人民解放战争"]},
-   "加": {"课": ["第21课 人民解放战争的胜利"]},
+   "加": {"课": ["第21课 人民解放战争的胜利"], "小节": ["三大战役和南京解放"]},
    "去重": ["册别"]}
 ]
 ```
@@ -23,7 +26,8 @@
 安全线：
   · 默认 **dry-run** 只打印计划，`--apply` 才落盘；
   · `--apply` 前把原文件备份到 `--backup`（默认 `{vault}/.fieldbackup/<日期>`——点开头，不入 Obsidian 索引）；
-  · 写回前用**真 YAML 解析器**复检受影响字段仍为字符串列表（防「块状渲染漏换行」这类事故）。
+  · 写回前用**真 YAML 解析器**复检受影响字段仍为字符串列表（防「块状渲染漏换行」这类事故）；
+  · 行尾风格（LF / CRLF）按原文件保持，正文逐字节不动。
 """
 from __future__ import annotations
 
@@ -41,6 +45,10 @@ from qb_bootstrap import bootstrap, require_vault
 from qb_schema import is_question_file
 
 LIST_FIELDS = ["册别", "单元", "课", "小节", "知识点", "核心素养", "素养层次水平", "关键能力"]
+
+# 规范字段顺序（用于「新增字段」定位插入点；比操作白名单宽，含标量字段）
+FIELD_ORDER = ["id", "册别", "单元", "课", "小节", "知识点", "核心素养", "素养层次水平",
+               "关键能力", "题型", "难度", "分值", "来源", "年份", "考区", "答案", "解析"]
 
 
 def parse_field(fm: str, key: str):
@@ -72,8 +80,32 @@ def render(key: str, style: str, vals: list) -> str:
     return f"{key}:\n" + "".join(f"{indent}- {v}\n" for v in vals)
 
 
+def insert_field(fm: str, key: str, vals: list) -> str:
+    """把 frontmatter 里不存在的字段插到「规范顺序中的前一已存在字段」之后。
+
+    风格沿用前驱字段（标量前驱 → 流式）；无可定位前驱时追加到末尾。
+    调用方须保证 fm 已规范化为 LF 行尾。
+    """
+    idx = FIELD_ORDER.index(key)
+    for k in reversed(FIELD_ORDER[:idx]):
+        style, _v, span = parse_field(fm, k)
+        if span is None:
+            continue
+        use = "inline" if style == "scalar" else style
+        if use.startswith("block"):
+            # 块状前驱：匹配区间已含最后一个「- 值\n」，新字段直接接在其后
+            return fm[:span[1]] + render(key, use, vals) + fm[span[1]:]
+        # 流式/标量前驱：区间止于行末，需补换行后插入
+        return fm[:span[1]] + "\n" + render(key, use, vals) + fm[span[1]:]
+    tail = "" if fm.endswith("\n") else "\n"
+    return fm + tail + render(key, "inline", vals)
+
+
 def edit_frontmatter(fm: str, ops: dict):
-    """按 ops（{'删':{}, '加':{}, '去重':[]}）改写 frontmatter，返回 (新 fm, 说明列表, 是否有改动)。"""
+    """按 ops（{'删':{}, '加':{}, '去重':[]}）改写 frontmatter，返回 (新 fm, 说明列表, 是否有改动)。
+
+    `加` 点名的字段若不存在 → 按规范顺序新增（仅「加」单独出现时）；`删`/`去重` 仍要求字段已存在。
+    """
     notes, changed = [], False
     for key in LIST_FIELDS:
         dels = list(ops.get("删", {}).get(key) or [])
@@ -83,7 +115,12 @@ def edit_frontmatter(fm: str, ops: dict):
             continue
         style, vals, span = parse_field(fm, key)
         if span is None:
-            notes.append(f"✗ 未找到「{key}」字段")
+            if adds and not dels and not dedup:
+                fm = insert_field(fm, key, adds)
+                changed = True
+                notes.append(f"{key}: 新增字段 → {adds}")
+            else:
+                notes.append(f"✗ 未找到「{key}」字段（新增须只给「加」、不同时给「删/去重」）")
             continue
         origin = list(vals)
         new = [v for v in vals if v not in dels] if dels else list(vals)
@@ -124,13 +161,15 @@ def check_fm(fm: str, keys) -> str:
 
 
 def process(path: Path, ops: dict, apply: bool, backup_dir: Path, vault: Path) -> bool:
-    """处理单个文件；返回是否成功（含无变化）。"""
+    """处理单个文件；返回是否成功（含无变化）。保持原行尾风格，正文不动。"""
     text = path.read_text(encoding="utf-8")
-    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    nl = "\r\n" if "\r\n" in text else "\n"
+    m = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n", text, re.S)
     if not m:
         print(f"  ✗ 无 frontmatter：{path}")
         return False
-    fm, body = m.group(1), text[m.end():]
+    # 内部一律以 LF 处理，写回时还原原行尾
+    fm, body = m.group(1).replace("\r\n", "\n"), text[m.end():]
     new_fm, notes, changed = edit_frontmatter(fm, ops)
     rel = path.relative_to(vault)
     if not changed:
@@ -146,7 +185,7 @@ def process(path: Path, ops: dict, apply: bool, backup_dir: Path, vault: Path) -
         dst = backup_dir / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, dst)
-        path.write_text("---\n" + new_fm + "\n---\n" + body, encoding="utf-8")
+        path.write_text("---" + nl + new_fm.replace("\n", nl) + nl + "---" + nl + body, encoding="utf-8")
     return True
 
 

@@ -259,6 +259,48 @@ class TestSchemaPure(unittest.TestCase):
         self.assertEqual(len(self.s.load_method_names()), 15)
 
 
+class TestAreaSimilarPure(unittest.TestCase):
+    """考区取值相似检测（scan_questions.area_similar_hits）——纯函数，不依赖 vault。
+
+    要点：区分「合法近邻」（河南/海南、湖南/湖北… 双方都是已知合法考区）与
+    「同义异写」（洛阳市、郑洲、洛阳涧西… 出现集合外变体）。
+    """
+
+    def setUp(self):
+        import scan_questions
+        from collections import Counter
+        self.f = scan_questions.area_similar_hits
+        self.Counter = Counter
+
+    def _pairs(self, d):
+        return {tuple(sorted((h[0], h[2]))) for h in self.f(self.Counter(d))}
+
+    def test_包含关系被报出(self):
+        self.assertIn(("洛阳", "洛阳市"), self._pairs({"洛阳": 640, "洛阳市": 3}))
+        self.assertIn(("洛阳", "洛阳涧西"), self._pairs({"洛阳": 640, "洛阳涧西": 5}))
+        self.assertIn(("开封", "开封市"), self._pairs({"开封": 54, "开封市": 2}))
+
+    def test_形近错写被报出(self):
+        self.assertIn(("郑州", "郑洲"), self._pairs({"郑州": 393, "郑洲": 1}))
+        # 整卷写错时错值频次同样很高——按「低频」过滤的旧思路会漏，故改用合法值集合判定
+        self.assertIn(("郑州", "郑洲"), self._pairs({"郑州": 393, "郑洲": 25}))
+        self.assertIn(("洛阳", "洛阴"), self._pairs({"洛阳": 640, "洛阴": 4}))
+
+    def test_合法近邻不报(self):
+        for a, b in [("河南", "海南"), ("河南", "河北"), ("湖南", "湖北"),
+                     ("广东", "广西"), ("江苏", "江西"), ("安阳", "南阳"), ("濮阳", "洛阳")]:
+            self.assertEqual(self._pairs({a: 100, b: 50}), set(), "%s/%s 不应报" % (a, b))
+
+    def test_快照_真实库取值零命中(self):
+        # 2026-10-03 全库 29 个考区取值的快照；数据新增后若命中，先人工确认是否真为异写再更新快照
+        real = {"河南": 875, "洛阳": 640, "郑州": 393, "海南": 121, "南阳": 74, "广东": 73,
+                "山东": 63, "江西": 60, "开封": 54, "河北": 40, "四川": 38, "全国": 30,
+                "安阳": 25, "新乡": 25, "濮阳": 25, "焦作": 25, "鹤壁": 25, "平顶山": 24,
+                "驻马店": 23, "云南": 20, "广西": 20, "贵州": 20, "陕晋宁青": 20, "江苏": 19,
+                "湖南": 19, "天津": 18, "重庆": 18, "湖北": 16, "原创": 7}
+        self.assertEqual(self.f(self.Counter(real)), [])
+
+
 class TestIsQuestionFile(unittest.TestCase):
     """is_question_file 的路径判据（防「题库外文件被当题」回归）。"""
 
@@ -768,6 +810,44 @@ class Test录入与整治辅助(TempVaultMixin, unittest.TestCase):
         self.assertNotIn("第1单元 中国开始沦为半殖民地半封建社会", t1)
         self.assertIn("第4课 洋务运动和边疆危机", t1)
         self.assertIn("第2单元 早期现代化的初步探索和民族危机加剧", t1)
+
+    def test_edit_fields_新增字段模式(self):
+        """缺字段时「加」应新建字段：位置按规范顺序、风格随前驱、块状前驱不吸附下一字段。"""
+        f1 = self._write("初中-1中考真题/2026郑州一模/2026郑州一模_选择题/03.md", (
+            "---\nid: [2026郑州一模-03]\n册别: [7上]\n单元: [第3单元 秦汉时期]\n"
+            "课: [第15课 秦汉时期的科技与文化]\n知识点: [《九章算术》]\n题型: 选择题\n---\n\n题干（　　）\n"))
+        f2 = self._write("初中-1中考真题/2026郑州一模/2026郑州一模_选择题/04.md", (
+            "---\nid:\n- 2026郑州一模-04\n册别:\n- 9上\n单元:\n- 第5单元 走向近代\n"
+            "课:\n- 第13课 西欧经济和社会的发展与文艺复兴运动\n知识点:\n- 文艺复兴\n题型: 选择题\n---\n\n题干（　　）\n"))
+        bk = TMP_ROOT / ("bk_" + uuid.uuid4().hex[:8])
+        ops = [
+            {"文件": "初中-1中考真题/2026郑州一模/2026郑州一模_选择题/03.md",
+             "加": {"小节": ["医学、数学与农学的成就"]}},
+            {"文件": "初中-1中考真题/2026郑州一模/2026郑州一模_选择题/04.md",
+             "加": {"小节": ["意大利文艺复兴运动"]}},
+        ]
+        opf = self._write("_ops_new.json", json.dumps(ops, ensure_ascii=False))
+        self.run_cli("edit_fields.py", "--op", str(opf), "--apply", "--backup", str(bk), expect=0)
+        # ① 流式前驱：插在「课」之后、「知识点」之前，风格随前驱
+        t1 = f1.read_text(encoding="utf-8").replace("\r\n", "\n")
+        self.assertIn("课: [第15课 秦汉时期的科技与文化]\n小节: [医学、数学与农学的成就]\n知识点:", t1)
+        # ② 块状前驱：新字段块状，末项不得吸附下一字段名（历史事故：漏换行 → `- X知识点:`）
+        t2 = f2.read_text(encoding="utf-8").replace("\r\n", "\n")
+        self.assertIn("课:\n- 第13课 西欧经济和社会的发展与文艺复兴运动\n小节:\n- 意大利文艺复兴运动\n知识点:", t2)
+        self.assertNotIn("- 意大利文艺复兴运动知识点", t2)
+        # 正文零改动
+        self.assertIn("题干（　　）\n", t1)
+
+    def test_edit_fields_新增字段须只给加(self):
+        """字段不存在且同时给「删」→ 不新建、仅报提示（避免误建字段）。"""
+        f = self._write("初中-1中考真题/2026郑州一模/2026郑州一模_选择题/05.md", (
+            "---\nid: [2026郑州一模-05]\n册别: [8上]\n课: [第1课 鸦片战争]\n题型: 选择题\n---\n\n题干\n"))
+        bk = TMP_ROOT / ("bk_" + uuid.uuid4().hex[:8])
+        ops = [{"文件": "初中-1中考真题/2026郑州一模/2026郑州一模_选择题/05.md",
+                "删": {"小节": ["X"]}, "加": {"小节": ["Y"]}}]
+        opf = self._write("_ops_new2.json", json.dumps(ops, ensure_ascii=False))
+        self.run_cli("edit_fields.py", "--op", str(opf), "--apply", "--backup", str(bk), expect=0)
+        self.assertNotIn("小节", f.read_text(encoding="utf-8"))
 
     def test_edit_fields_字段白名单外拒绝(self):
         r = self.run_cli("edit_fields.py", "--去重", "答案")
