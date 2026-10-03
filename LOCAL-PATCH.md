@@ -17,10 +17,13 @@
 **改动**
 
 1. `workflow/01-input.md`（链路A）
-   - 新增「**备选二：长时间不可用时改用 PaddleOCR MCP**」：入参（`input_data` 绝对路径 / `file_type: "pdf"` /
+   - 新增「**备选：`extract(vlm)` 不可用时改用 PaddleOCR MCP**」：入参（`input_data` 绝对路径 / `file_type: "pdf"` /
      `output_mode`）、实测质量对比（同卷 flash 的选项错序、水印混入、OCR 错字，PaddleOCR 均正确）、
      两条注意（偶发 `Error calling tool` 重试即可；返回 `<img src="imgs/…">` 不含图片二进制，须另裁）、
-     超限时先按页拆分，以及**三通道取舍**：`extract(vlm)` → **PaddleOCR MCP** → `flash-extract`。
+     超限时先按页拆分，以及**通道取舍**：`extract(vlm)` → **PaddleOCR MCP**。
+   - ⚠ **同时删除原 `flash-extract` 备选段**（用户裁定，2026-10-03）：flash 质量不足
+     （选项错序/被吞、第三方水印串入、方言与生僻字失真、图片仅 `<!-- image -->` 占位、限 10MB），
+     须逐题回图复核才敢入库，成本高于收益 → **vlm 不可用时一律改用 PaddleOCR MCP，不再保留 flash 通道**。
 2. `scripts/import_from_md.py`
    - 新增 `renumb_imgs(text, qno, start)`：把图片引用规范为 `images/{qno}_{n}.{ext}`，返回
      `(新文本, 结束编号)`，编号在「题干 → 选项」之间**接续**（避免重名）。

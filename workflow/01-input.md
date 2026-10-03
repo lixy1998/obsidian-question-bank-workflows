@@ -26,31 +26,15 @@
    - 支持 PDF/图片/Word/PPT/网页（**这是 MinerU 的能力**，非本 skill 内置）；`-o` 必须绝对路径正斜杠（Git Bash 的 /tmp/ 等会卡死）
    - 输出 `<文档名>.md` + `images/` 同级；Token 在 `~/.mineru/config.yaml`；无 token 时改用链路B
 
-   **备选：`extract --model vlm` 失败时用 `flash-extract`（免 Token）**
+   **备选：`extract(vlm)` 不可用时改用 PaddleOCR MCP**（2026-10-03 立；**不再采用 MinerU flash 通道**）
 
-   vlm 接口在**多卷并发或服务拥塞**时会整体失败——实测 4 卷并发全部返回 `Error: timeout waiting for batch`（约 5 分钟后统一失败、零输出），**串行重跑并加 `--timeout 900` 仍然失败**。此时不必等接口恢复，直接改免 Token 的 flash 通道：
-
-   ```bash
-   mineru-open-api flash-extract "<文件>" --ocr -o "<输出目录>/<名>.md"
-   ```
-
-   - **能力**：免 Token、单卷约 1 分钟返回；表格保留为 HTML `<table>`、题干完整、选项同行（可直接喂 `import_from_md.py` 的解析逻辑）
-   - ⚠ **代价与必须的人工复核**（实测踩点，缺一不可）：
-     1. **图片只有 `<!-- image -->` 占位符**——须自行渲染 PDF 裁图入库（裁图定位见下）；
-     2. **偶有选项被吞**（实测广东卷第 11 题只剩 A、C 两项）——**逐题打印选项数自查，≠4 回图重取**；
-     3. **方言、生僻字段落 OCR 失真**（陕北秧歌歌词整段错乱），须 400~550dpi 裁剪复核；
-     4. 卷面第三方水印（公众号/小红书引流）可能串进正文，**取块后按行剔除**。
-   - 结论：flash-extract 出**底稿**，逐题对图复核后入库；不要把它当免核对的一步到位工具
-
-   **备选二：长时间不可用时改用 PaddleOCR MCP**（2026-10-03 立）
-
-   当 `extract(vlm)` 持续超时（服务端 `pending` 卡死，非本地问题）而文件又超过 flash 的 10MB 上限时，改用 PaddleOCR MCP 的 `paddleocr_vl` 工具：
+   `extract(vlm)` 在**服务端拥塞或队列故障**时会整体失败——实测整份与拆分后均返回 `Error: timeout waiting for batch`，服务端任务恒停在 `pending`（调度器不取任务，非本地问题）。此前曾以 `flash-extract`（免 Token）兜底，但实测其**质量明显不足**：选项错序/被吞、第三方水印串入正文、方言与生僻字 OCR 失真、图片只有 `<!-- image -->` 占位、且限 10MB——须逐题回图复核才敢入库，成本高于收益。**故本流程不保留 flash 备选，vlm 不可用时一律改用 PaddleOCR MCP**：
 
    - **入参**：`input_data` 取**绝对路径**（亦支持 http(s) URL / base64）、PDF 必带 `file_type: "pdf"`、`output_mode` 取 `simple`（纯文本）或 `detailed`（JSON）、`return_images` 默认 true
    - **能力与质量（实测）**：支持 PDF 直传、不必逐页；题干/选项/答案/表格（转 HTML `<table>`）/图片位置**均准**——同一份卷 flash 出的选项错序、水印混入、OCR 错字，PaddleOCR 均正确
    - ⚠ **两条注意**：① 单次调用偶发 `Error calling tool`——**重试即可**（实测 3 份中 1 份需重试）；② 返回的 `<img src="imgs/…">` **不含图片二进制**，图片仍须另从原 PDF 裁剪（`pull_pdf_images.py` 或 pymupdf `get_pixmap(clip=…)`）
-   - 文件超过平台上限时仍**先按页拆分**（`pymupdf: fitz.open().insert_pdf(from_page=…, to_page=…)`）再逐份调用
-   - **三条通道取舍**：`extract(vlm)`（首选）→ **PaddleOCR MCP（vlm 故障时的首选替代）** → `flash-extract`（免 Token 兜底，限 10MB、须逐题复核）
+   - 文件过大时先按页拆分再逐份调用（`pymupdf: fitz.open().insert_pdf(from_page=…, to_page=…)`）
+   - **通道取舍**：`extract(vlm)` 为首选（一次出 md + images/ 最省事）；其不可用时**一律改用 PaddleOCR MCP**
 
 2. **人工核对 OCR**（必做，逐项对照源文件，7 项清单）：
 
