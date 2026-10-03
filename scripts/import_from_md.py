@@ -16,7 +16,9 @@
   · **选择题**切出题干与 A–D 选项：容忍两项紧邻、字母后无空格（`理性C.人物…`）；
   · **非选择题**删块首整题分值（`（20分）`，可位于行首或行尾），**保留各小问分值**；
   · **图片引用**按题号规范为 `images/{题号}_{n}.{ext}`，**保留原扩展名**
-    （库内不可显示格式另有 `fix_image_formats.py` 兜底）。
+    （库内不可显示格式另有 `fix_image_formats.py` 兜底）；**题干与选项中的图引用都处理**，
+    编号在两者之间接续；**选项内出现图引用时告警**——多因原卷图被排到上一题的选项行内，
+    须人工核对图片归属。
 
 只改写 JSON 中的「题干」「选项」两字段，JSON 结构与其他字段一律不动。
 默认直接写回；加 `--dry-run` 只打印预览。
@@ -91,8 +93,24 @@ def split_options(block: str):
     return stem, opts
 
 
-def norm_body(text: str, qno: int, strip_total_score: bool = False) -> str:
-    """整题分值剔除 + 图片引用规范化 + 空行收敛。"""
+def renumb_imgs(text: str, qno: int, start: int = 0):
+    """把 text 中的图片引用规范为 images/{qno}_{n}.{ext}（n 从 start+1 起）。
+
+    返回 (新文本, 结束编号)——编号需在「题干 → 选项」之间**接续**，
+    调用方拿到上一步的结束编号后传给下一步。
+    """
+    counter = [start]
+
+    def _img(_m):
+        counter[0] += 1
+        ext = _m.group(0).rsplit(".", 1)[-1].rstrip(")").strip().lower()
+        return f"![](images/{qno}_{counter[0]}.{ext})"
+
+    return IMG_RE.sub(_img, text), counter[0]
+
+
+def norm_body(text: str, qno: int, strip_total_score: bool = False):
+    """整题分值剔除 + 图片引用规范化 + 空行收敛。返回 (文本, 结束编号)。"""
     s = text.strip()
     if strip_total_score:
         lines = s.split("\n")
@@ -101,15 +119,8 @@ def norm_body(text: str, qno: int, strip_total_score: bool = False) -> str:
             head = re.sub(r"\s*（\d+分）\s*$", "", head)
             lines[0] = head
             s = "\n".join(lines).strip()
-    counter = [0]
-
-    def _img(_m):
-        counter[0] += 1
-        ext = _m.group(0).rsplit(".", 1)[-1].rstrip(")").strip().lower()
-        return f"![](images/{qno}_{counter[0]}.{ext})"
-
-    s = IMG_RE.sub(_img, s)
-    return re.sub(r"\n{3,}", "\n\n", s).strip()
+    s, n = renumb_imgs(s, qno, 0)
+    return re.sub(r"\n{3,}", "\n\n", s).strip(), n
 
 
 def main() -> None:
@@ -152,13 +163,21 @@ def main() -> None:
         if rec.get("题型") == "选择题":
             blk = re.split(SECTION_RE, blk)[0]      # 块尾可能粘住下一节标题
             stem, opts = split_options(blk)
-            rec["题干"] = norm_body(stem, qno)
-            rec["选项"] = opts
+            stem_n, n = norm_body(stem, qno)
+            rec["题干"] = stem_n
+            new_opts = []
+            for o in opts:                          # 选项内的图引用同样编号（与题干接续，避免重名）
+                o2, n = renumb_imgs(o, qno, start=n)
+                new_opts.append(o2)
+            rec["选项"] = new_opts
             if not opts:
                 print(f"  ⚠ 序号 {qno}：未切出选项，请人工核对")
+            if any("images/" in o for o in new_opts):
+                print(f"  ⚠ 序号 {qno}：选项内含图片引用——多见于原卷图被排到上一题的选项行内，"
+                      f"请人工核对图片归属（不属本题的图须移到正确题号）")
             filled += 1
         else:
-            rec["题干"] = norm_body(blk, qno, strip_total_score=True)
+            rec["题干"] = norm_body(blk, qno, strip_total_score=True)[0]
             filled += 1
 
     print(f"\n回填 {filled} 题｜跳过 {skipped} 题｜源中缺块 {missing} 题")
