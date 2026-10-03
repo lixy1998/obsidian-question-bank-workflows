@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-10-03 · 🖼️ import_from_md.py 规范化选项内图引用 + MinerU 故障时改用 PaddleOCR
+
+**缘起**：录入 2025 年六卷高考卷时暴露两处缺口——
+① 福建（29 页）、甘肃（6 页）两份扫描 PDF 走 `extract(vlm)` **持续超时**（服务端 `pending` 卡死，
+   非本地问题），flash 通道又有 10MB 上限；
+② `import_from_md.py` 只规范**题干**中的图片引用，**选项内的图引用原样保留**——
+   而当原卷配图被版面排到上一题的选项行内时（实测浙江6月卷第 2、16 题），
+   图会以原文件名（`001.png`）滞留在上一题的选项里，既未重命名、也无任何提示。
+
+**改动**
+
+1. `workflow/01-input.md`（链路A）
+   - 新增「**备选二：长时间不可用时改用 PaddleOCR MCP**」：入参（`input_data` 绝对路径 / `file_type: "pdf"` /
+     `output_mode`）、实测质量对比（同卷 flash 的选项错序、水印混入、OCR 错字，PaddleOCR 均正确）、
+     两条注意（偶发 `Error calling tool` 重试即可；返回 `<img src="imgs/…">` 不含图片二进制，须另裁）、
+     超限时先按页拆分，以及**三通道取舍**：`extract(vlm)` → **PaddleOCR MCP** → `flash-extract`。
+2. `scripts/import_from_md.py`
+   - 新增 `renumb_imgs(text, qno, start)`：把图片引用规范为 `images/{qno}_{n}.{ext}`，返回
+     `(新文本, 结束编号)`，编号在「题干 → 选项」之间**接续**（避免重名）。
+   - `norm_body()` 返回值由 `str` 改为 `(str, int)`（结束编号），内部改调 `renumb_imgs()`。
+   - 选择题分支：逐项对**选项**调用 `renumb_imgs()`；**选项内含 `images/` 时告警**，
+     提示「多见于原卷图被排到上一题的选项行内，请人工核对图片归属」。
+   - 顶部 docstring 同步说明。
+
+**验证样本**：以浙江6月卷源 md 跑 `--dry-run` → 告警精准命中第 2、16 题（正是本次实际错位的两题）；
+`tests/test_qb.py` **63 条全绿**（含 `test_import_from_md_回填题干与选项`）。
+
+**提交**：`93f5cfc`。
+
+---
+
 ## 2026-10-03 · 📝 edit_fields.py 支持「新增字段」（补缺字段整治缺口）
 
 **缘起**：题库「小节」字段补录时发现——`parse_field` 对**整份 frontmatter 里不存在的字段**只报
