@@ -780,6 +780,87 @@ class Test录入与整治辅助(TempVaultMixin, unittest.TestCase):
         self.assertNotIn("参考答案", json.dumps(out, ensure_ascii=False))
         self.assertIn("回填 2 题", r.stdout)
 
+    def test_import_from_md_无标记答案区兜底(self):
+        """答案紧跟试题、无独立标题（省级《学科评价报告》形态）时，末题不得吞入答案。
+
+        回归：2025 安徽卷（答案写作「1. C【解析】…」「(1)【答案】…」）、2025 浙江6月卷
+        （答案区题号写作「19（15分）」）——两处均不含 ANSWER_MARKERS、且不匹配建块正则，
+        整段答案被并入试卷区最后一个块。
+        """
+        md = self._write("_src2.md", (
+            "一、选择题\n\n"
+            "1．秦朝统一后在全国推行郡县制。这表明（　　）\n\n"
+            "A．分封制瓦解　B．中央集权加强\n\n"
+            "二、非选择题\n\n"
+            "17．阅读材料，回答问题。（12分）\n\n"
+            "材料一  某史料。\n\n"
+            "（1）概括其内容。（6分）\n\n"
+            "（2）说明其影响。（6分）\n\n"
+            "18．阅读材料，完成下列要求。（14分）\n\n"
+            "材料  另一史料。\n\n"
+            "（1）分析其原因。（6分）\n\n"
+            "（2）谈谈你的认识。（8分）\n\n"
+            "17（12分）\n\n"
+            "（1）【答案】内容为甲、乙、丙。\n\n"
+            "【解析】据材料一可知……\n\n"
+            "18（14分）\n\n"
+            "（1）【答案】原因是……\n\n"
+            "【解析】据材料可知……\n"))
+        js = self._write("_in2.json", json.dumps(
+            [{"序号": "01", "题型": "选择题"},
+             {"序号": "17", "题型": "材料解析题"},
+             {"序号": "18", "题型": "材料解析题"}], ensure_ascii=False))
+        self.run_cli("import_from_md.py", "--源", str(md), "--json", str(js), expect=0)
+        out = json.loads(js.read_text(encoding="utf-8"))
+        d = {r["序号"]: r["题干"] for r in out}
+        self.assertNotIn("【答案】", d["17"])
+        self.assertNotIn("【解析】", d["17"])
+        self.assertTrue(d["17"].rstrip().endswith("（6分）"))
+        # 末题不得吞入答案区
+        self.assertNotIn("【答案】", d["18"])
+        self.assertNotIn("【解析】", d["18"])
+        self.assertTrue(d["18"].rstrip().endswith("（8分）"))
+
+    def test_import_from_md_答案区标题回退行首(self):
+        """答案区标题把标记夹在中间时，正文尾部不得残留半行标题。"""
+        md = self._write("_src3.md", (
+            "1．题干一（　　）\n\nA．甲　B．乙\n\n"
+            "浙江省2025年1月历史首考参考答案\n\n"
+            "1．A\n"))
+        js = self._write("_in3.json", json.dumps(
+            [{"序号": "01", "题型": "选择题"}], ensure_ascii=False))
+        self.run_cli("import_from_md.py", "--源", str(md), "--json", str(js), expect=0)
+        out = json.loads(js.read_text(encoding="utf-8"))
+        self.assertTrue(out[0]["题干"].rstrip().endswith("（　　）"))
+        self.assertNotIn("首考", out[0]["题干"])
+
+    def test_import_from_md_结构判据兜底(self):
+        """答案**完全不带特征词**时，靠结构判据兜底：「（1）原因：」式短标签 / 「示例一：」。"""
+        md = self._write("_src4.md", (
+            "18．阅读材料，回答问题。（14分）\n\n"
+            "材料  另一史料。\n\n"
+            "（1）简述其原因。（9分）\n\n"
+            "（2）说明其局限。（6分）\n\n"
+            "（1）原因：资本主义经济的发展……（四点8分）\n\n"
+            "（2）局限：加剧社会不平等……\n\n"
+            "19．阅读材料，完成下列要求。（12分）\n\n"
+            "材料  某史料。\n\n"
+            "就材料的整体或部分论述，任选角度，自拟论题，加以阐释。（要求：论题明确，观点正确）\n\n"
+            "示例一：\n\n角度：以研究辛亥革命为例……\n\n"
+            "示例二：\n\n中国早期现代化是一个由浅入深的过程……\n"))
+        js = self._write("_in4.json", json.dumps(
+            [{"序号": "18", "题型": "材料解析题"},
+             {"序号": "19", "题型": "论述题"}], ensure_ascii=False))
+        self.run_cli("import_from_md.py", "--源", str(md), "--json", str(js), expect=0)
+        out = json.loads(js.read_text(encoding="utf-8"))
+        d = {r["序号"]: r["题干"] for r in out}
+        # 「（1）原因：」式答案短标签
+        self.assertTrue(d["18"].rstrip().endswith("（6分）"))
+        self.assertNotIn("原因：", d["18"])
+        # 「示例一：」式参考答案示例（该题 head 中只有整题分值 → 不截到分号，整段保留）
+        self.assertTrue(d["19"].rstrip().endswith("观点正确）"))
+        self.assertNotIn("示例", d["19"])
+
     def test_edit_fields_去重与清单模式(self):
         f1 = self._write("初中-1中考真题/2026郑州一模/2026郑州一模_选择题/01.md", (
             "---\nid: 2026郑州一模-01\n册别: [8上, 8上]\n"
