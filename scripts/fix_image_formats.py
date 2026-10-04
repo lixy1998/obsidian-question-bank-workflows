@@ -17,6 +17,10 @@
   修复 = 统一改写为 `![](images/<无空格文件名>)`；图不在同目录 images/ 时自动移入
   （题库约定：题目图片一律放同目录 images/ 子夹）。
 
+③ 挂载：库内图片未被任何笔记「按引用路径解析」命中 → 孤儿图。多为**图已入库但正文
+  漏挂引用**（真缺图），也可能是题面已改/图已弃用。巡检单列，需人工判断补引用，
+  本脚本不自动挂图。
+
 用法：
   # ① 巡检（只读，不动任何文件）
   python fix_image_formats.py
@@ -63,6 +67,15 @@ IMG_EXT = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "tif", "tiff",
 MD_REF = re.compile(r"\]\(([^)\s]+)\)")          # ![](images/x.jpg) / [](path)
 WK_REF = re.compile(r"!\[\[([^\]]+)\]\]")        # ![[images/x.jpg|300]]
 MD_IMG_ANY = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")   # 任意 md 图片引用（含 alt 非空 / URL 含空格）
+
+
+def wk_target(inner):
+    """wikilink 内层 → 目标路径（取 `|` 前段）。
+
+    ⚠ 表格内 Obsidian 要求把别名分隔符写成 `\\|`（如 `![[x.png\\|300]]`），
+    不剥离反斜杠会把目标读成 `x.png\\`——扩展名判定失败 → 该引用被整体漏检。
+    """
+    return inner.replace("\\|", "|").split("|")[0].strip()
 
 
 def get_vault(cli_vault=None) -> Path:
@@ -163,8 +176,10 @@ def scan(vault):
     name_count = collections.Counter()
     img_by_name = collections.defaultdict(list)
     for dp, dn, fn in os.walk(vault):
-        dn[:] = [d for d in dn if d not in (".obsidian", ".git", ".trash",
-                                            ".Z-Archive", ".dedupe")]
+        # 排除一切点开头目录（.obsidian/.git/.trash/.dedupe/.fieldbackup/.Z-Archive…）。
+        # 2026-10-04：原显式列表漏掉 .fieldbackup（字段编辑备份，只存 md 不含图片），
+        # 其下 md 的图片引用全被判 md-broken，61 处假告警淹没真实结果。
+        dn[:] = [d for d in dn if not d.startswith(".")]
         for f in fn:
             p = Path(dp) / f
             ext = p.suffix.lower().lstrip(".")
@@ -184,7 +199,7 @@ def scan(vault):
             if b and md not in ref_files[b]:
                 ref_files[b].append(md)
         for m in WK_REF.finditer(txt):
-            b = os.path.basename(m.group(1).split("|")[0]).lower()
+            b = os.path.basename(wk_target(m.group(1))).lower()
             if b and md not in ref_files[b]:
                 ref_files[b].append(md)
     return bad, ref_map, ref_files, name_count, dict(img_by_name)
@@ -199,7 +214,7 @@ def scan_refs(ref_map, img_by_name):
     bad_refs = collections.defaultdict(list)
     for md, txt in ref_map.items():
         for m in WK_REF.finditer(txt):
-            tgt = m.group(1).split("|")[0].strip()
+            tgt = wk_target(m.group(1))
             if not tgt or tgt.startswith(("http", "data:")):
                 continue
             if os.path.splitext(tgt)[1].lower().lstrip(".") not in IMG_EXT:
@@ -222,6 +237,38 @@ def scan_refs(ref_map, img_by_name):
             elif not (md.parent / url.split("#")[0]).exists():
                 bad_refs[md].append({"kind": "md-broken", "raw": m.group(0), "target": url})
     return dict(bad_refs)
+
+
+def scan_orphans(vault, ref_map, img_by_name):
+    """库内图片未被任何笔记实际引用 → 孤儿图清单。
+
+    引用按「相对本笔记解析」判定；wikilink 裸名按 Obsidian 行为全库同名匹配。
+    孤儿图多为「图已入库但正文漏挂引用」（真缺图），也可能是题面已改/图已弃用——
+    只巡检、不自动处理（补引用须人工确认挂到哪一题）。
+    """
+    used = set()
+    for md, txt in ref_map.items():
+        for m in MD_IMG_ANY.finditer(txt):
+            url = m.group(2).strip()
+            if url.startswith(("http", "data:")):
+                continue
+            rel = url.split("#")[0]
+            if not rel:
+                continue
+            try:
+                used.add(os.path.normcase(str((md.parent / rel).resolve())))
+            except Exception:
+                pass
+        for m in WK_REF.finditer(txt):
+            tgt = wk_target(m.group(1))
+            if not tgt or tgt.startswith(("http", "data:")):
+                continue
+            if os.path.splitext(tgt)[1].lower().lstrip(".") not in IMG_EXT:
+                continue
+            for p in img_by_name.get(os.path.basename(tgt).lower(), []):
+                used.add(os.path.normcase(str(p.resolve())))
+    return [p for ps in img_by_name.values() for p in ps
+            if os.path.normcase(str(p.resolve())) not in used]
 
 
 def build_ref_by_path(ref_map):
@@ -487,10 +534,11 @@ def main():
     print(f"[md] 扫描 {len(ref_map)} 篇笔记，库内图片 {sum(name_count.values())} 个")
 
     bad_refs = scan_refs(ref_map, img_by_name)
+    orphans = scan_orphans(vault, ref_map, img_by_name)
 
     # ---- 巡检报告 ----
-    if not bad and not bad_refs:
-        print("\n✅ 图片格式与引用形态全部规范——无需修复")
+    if not bad and not bad_refs and not orphans:
+        print("\n✅ 图片格式、引用形态与图片挂载全部规范——无需修复")
         return
 
     if bad:
@@ -517,6 +565,12 @@ def main():
             kc = collections.Counter(it["kind"] for it in bad_refs[md])
             print(f"    {md.relative_to(vault)}  "
                   + "  ".join(f"{k}×{n}" for k, n in sorted(kc.items())))
+
+    if orphans:
+        print(f"\n发现 {len(orphans)} 张孤儿图（库内存在、但无任何笔记引用——多为「图已入库、正文漏挂」）：")
+        for p in sorted(orphans):
+            print(f"    {p.relative_to(vault)}  ({p.stat().st_size / 1024:.0f}KB)")
+        print("    ⚠ 需人工补引用（本脚本不自动挂图）")
 
     if not a.fix:
         print("\n（当前为巡检模式。加 --fix 看修复计划，加 --fix --apply 真正执行）")
@@ -626,7 +680,7 @@ def main():
             return m.group(0).replace(os.path.basename(url), nb) if nb else m.group(0)
 
         def sub_wk(m):
-            tgt = m.group(1).split("|")[0]
+            tgt = wk_target(m.group(1))
             nb = lookup(vault, tgt) or lookup(md.parent, tgt)     # wikilink 多按库根解析
             return "![[" + m.group(1).replace(os.path.basename(tgt), nb) + "]]" if nb else m.group(0)
 
