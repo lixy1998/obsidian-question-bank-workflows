@@ -225,6 +225,28 @@ class TestSchemaPure(unittest.TestCase):
         for sym in ("(A)", "(B)", "(C)", "(D)"):
             self.assertIn(sym, body)
 
+    def test_build_body_图片选项题出表格(self):
+        """选项含图片引用时改出 md 表格（第一行图片、第二行 A. 文字）。"""
+        rec = q(选项=[
+            "![](images/01_1.jpg) 司母戊鼎",
+            "![](images/01_2.jpg) 铜冰鉴",
+            "![](images/01_3.jpg) 三彩釉陶载乐骆驼",
+            "![](images/01_4.jpg) 定窑孩儿枕",
+        ])
+        body = self.s.build_body(rec)
+        lines = body.splitlines()
+        self.assertIn("| ![](images/01_1.jpg) |", lines[2])
+        self.assertEqual(lines[3], "|:---:|:---:|:---:|:---:|")
+        self.assertIn("| A. 司母戊鼎 |", lines[4])
+        self.assertIn("D. 定窑孩儿枕", lines[4])
+        self.assertNotIn("(A)", body)  # 不再走行内拼接
+
+    def test_build_body_纯图选项题出表格(self):
+        """选项只有图、无文字时，表格第二行只写字母。"""
+        rec = q(选项=[f"![](images/02_{i}.jpg)" for i in range(1, 5)])
+        body = self.s.build_body(rec)
+        self.assertIn("| A. | B. | C. | D. |", body)
+
     def test_yaml往返(self):
         rec = q()
         text = self.s.dump_yaml(rec)
@@ -444,6 +466,38 @@ class TestEndToEnd(TempVaultMixin, unittest.TestCase):
             "---\nid: 2026测试卷-01\n册别:\n  - 7上\n---\n模板正文\n", encoding="utf-8")
         r = self.run_cli("scan_questions.py", "--json", expect=0)
         self.assertEqual(json.loads(r.stdout)["total"], 1, "模板文件被计入题目总数")
+
+    def test_09_frontmatter_YAML解析失败_单列报出且不刷缺字段(self):
+        """块标量缩进丢失 → 整块 frontmatter 失效：应单列成节报出（带「第 N 行」定位）并以
+        退出码 1 阻断；且**不得**再逐项刷「缺字段 X」——此时 fm 恒为 {}，那是同源噪音，
+        会把「缩进丢了」这个真根因淹掉。
+
+        判据来源（2026-10-07 实录）：安阳文峰区龙安区2024-2025学年7下期末 选择题/08.md
+        的 `解析: |` 内容顶格未缩进，一度刷出 11 条「缺字段」掩盖 1 条根因。
+        """
+        self.make_question(序号="01")              # 一道正常题，确保题库非空
+        d = self.vault / "初中-3阶段测试" / "坏例卷" / "坏例卷_选择题"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "01.md").write_text(
+            "---\nid: [坏例卷-01]\n册别: [7上]\n单元: [第2单元 夏商周时期]\n"
+            "课: [第4课 夏商西周王朝的更替]\n题型: 选择题\n难度: 中\n分值: 1\n"
+            "年份: 2026\n考区: 河南\n答案: C\n解析: |\n【考点】故意不缩进\n---\n\n题干\n",
+            encoding="utf-8")
+
+        r = self.run_cli("scan_questions.py", "--json")
+        self.assertEqual(r.returncode, 1,
+                         "YAML 解析失败应以退出码 1 阻断；stdout=%s" % r.stdout[-300:])
+        data = json.loads(r.stdout)
+        self.assertEqual(len(data["yaml_errors"]), 1, "未单列报出：%s" % data["yaml_errors"])
+        self.assertIn("行", data["yaml_errors"][0]["错误"], "报错缺少行号定位")
+        self.assertEqual([p for p in data["problems"] if "缺字段" in p], [],
+                         "frontmatter 失效后仍刷「缺字段」噪音：%s" % data["problems"])
+
+        # 人类可读输出也要有该节（只看 stdout 的人不能漏），且坏文件不得计入题目统计
+        r2 = self.run_cli("scan_questions.py")
+        self.assertIn("frontmatter YAML 解析失败", r2.stdout, "stdout 缺少该节：%s" % r2.stdout[-400:])
+        self.assertRegex(r2.stdout, r"第 \d+ 行第 \d+ 列", "stdout 缺少「第 N 行第 M 列」定位")
+        self.assertIn("题目总数：1", r2.stdout.replace(" ", ""), "坏文件不应计入题目总数")
 
 
 class TestDocxRender(TempVaultMixin, unittest.TestCase):

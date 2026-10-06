@@ -9,6 +9,9 @@
   徐奉先 3×3 等旧格式仍为提示级）——修补「A2-理解/C3-感悟」类标注逃过校验的盲区
 - **考区取值相似检测**（提示级）：找出疑似同义异写/错写的取值对
   （如「洛阳」vs「洛阳市」、「郑州」vs「郑洲」）——考区字段此前只有必填校验、无值域校验，此项补该缺口
+- **frontmatter YAML 解析失败**（问题级，阻断）：整块 frontmatter 语法非法时**单列成节报出**
+  （含「第 N 行第 M 列」定位），并**跳过该文件其余字段校验**——此时 fm 为空字典，
+  再逐项报「缺字段 X」纯属同源刷屏，会把真正的根因淹掉
 - 输出：总量统计 + 按册别/题型/难度/考区分布 + 问题清单
 
 用法：
@@ -46,6 +49,29 @@ def _empty(v) -> bool:
     if isinstance(v, list):
         return not v
     return False
+
+
+# PyYAML 异常里的位置串：`in "<unicode string>", line 18, column 1:`
+_YAML_POS = re.compile(r"line (\d+), column (\d+)")
+# split_frontmatter 走的正则从**文件第 1 行**的 `---` 起抓，group(1) 自文件第 2 行开始，
+# 故 PyYAML 的相对行号 +1 才是用户在编辑器里看到的行号。
+_YAML_LINE_OFFSET = 1
+
+
+def yaml_err_brief(err: str) -> str:
+    """把 PyYAML 的多行异常压成单行可读提示：「第 N 行第 M 列：<描述>」。
+
+    为什么需要：`yaml.safe_load` 抛出的 `str(e)` 是多行结构——顶层描述行、缩进的
+    `in "<unicode string>", line …` 位置行、原文片段行、`^` 指示行会交替出现；
+    直接塞进 problems 的单行条目会把清单冲乱（实测打印出一堆悬空的 `^]` 行）。
+    这里只保留**顶层描述行**（无前导空白），位置另从 `line N, column M` 提取并换算为文件行号。
+    """
+    raw = re.sub(r"^YAML解析失败[：:]\s*", "", str(err))
+    desc = [ln.strip() for ln in raw.splitlines() if ln.strip() and not ln[:1].isspace()]
+    pos = _YAML_POS.search(raw)
+    where = (f"第 {int(pos.group(1)) + _YAML_LINE_OFFSET} 行第 {pos.group(2)} 列"
+             if pos else "位置未知")
+    return f"{where}：{'；'.join(desc)}"
 
 
 # 郑林 9 要素编号格式（A1-C3）：关键能力主词表；徐奉先 3×3 为旧标注（存量迁移未完成，仅提示）
@@ -124,7 +150,12 @@ def dump(roots, only_vol: str = None):
                 continue
             if only_vol and only_vol not in p.parts:
                 continue
-            fm, _, _ = split_frontmatter(p.read_text(encoding="utf-8"))
+            fm, _, err = split_frontmatter(p.read_text(encoding="utf-8"))
+            if err:
+                # frontmatter 失效的文件元数据全空，留在 dump 里就是「字段全空」的幽灵条目
+                # （下游按此清单检索还会误以为题目真实存在），故剔除并报到 stderr
+                print(f"[跳过] YAML解析失败：{p}：{yaml_err_brief(err)}", file=sys.stderr)
+                continue
             rel = p.relative_to(require_vault()).parts
             ids = as_list(fm.get("id"))
             out.append({
@@ -144,6 +175,7 @@ def scan(roots, only_vol: str = None):
     problems, stats = [], Counter()
     seen_ids, total = {}, 0
     old_ks_count = 0  # 关键能力仍为徐奉先旧格式的题数（提示级，不计入 problems）
+    yaml_errors = []  # [(rel, 单行提示)] frontmatter 语法非法的文件（问题级，阻断，单列成节）
     merged = []       # [(rel, 主卷 id, [别名 id, ...]), ...] 一题多卷题
     area_counter = Counter()  # 考区取值计数（供相似值检测）
     primary_ids = {}  # 主卷 id -> rel（用于别名交叉校验）
@@ -160,11 +192,17 @@ def scan(roots, only_vol: str = None):
                 continue
             if only_vol and only_vol not in p.parts:
                 continue  # --卷 过滤：只保留路径中含该卷名的文件
-            total += 1
             rel = p.relative_to(require_vault())
             fm, body, err = split_frontmatter(p.read_text(encoding="utf-8"))
             if err:
-                problems.append(f"[{err}] {rel}")
+                # frontmatter 整块失效：单列成节报出（带「第 N 行」定位），并**跳过本文件其余校验**——
+                # 此时 fm 恒为 {}，继续跑必填/枚举/id 校验只会刷出一串「缺字段 X」的同源噪音，
+                # 把「块标量缩进丢了」这类真根因淹掉。
+                # （2026-10-07 实录：安阳文峰区龙安区2024-2025学年7下期末 选择题/08.md
+                #   因 `解析: |` 内容未缩进，一度刷出 11 条「缺字段」掩盖 1 条根因）
+                yaml_errors.append((str(rel), yaml_err_brief(err)))
+                continue          # 属性不可信 → 不计入「题目总数」与各维统计，单列成节
+            total += 1
             # 必填字段
             for f in REQUIRED_FIELDS:
                 if _empty(fm.get(f)):
@@ -287,7 +325,8 @@ def scan(roots, only_vol: str = None):
                     f"应跑 dedupe_questions.py --merge 归档别名题）")
     stats["一题多卷::多值id题数"] = len(merged)
     area_hits = area_similar_hits(area_counter)
-    return total, stats, problems, old_ks_count, merged, locator_hits, pair_hits, area_hits
+    return (total, stats, problems, old_ks_count, merged, locator_hits, pair_hits, area_hits,
+            yaml_errors)
 
 
 def main():
@@ -307,11 +346,13 @@ def main():
         dump(roots, args.卷)
         return
 
-    total, stats, problems, old_ks_count, merged, locator_hits, pair_hits, area_hits = scan(roots, args.卷)
+    (total, stats, problems, old_ks_count, merged, locator_hits, pair_hits, area_hits,
+     yaml_errors) = scan(roots, args.卷)
 
     if args.json:
         print(json.dumps({"total": total, "stats": dict(stats),
                           "problems": problems, "old_ks_count": old_ks_count,
+                          "yaml_errors": [{"文件": r, "错误": brief} for r, brief in yaml_errors],
                           "locator_hits": [{"文件": r, "缺单元": sorted(u), "缺册别": sorted(b)}
                                            for r, u, b in locator_hits],
                           "pair_hits": [{"文件": r, "无课承接的单元": sorted(u), "册别异常": sorted(b)}
@@ -321,7 +362,9 @@ def main():
                           "merged": [{"文件": str(r), "主卷id": pid, "别名id": al}
                                      for r, pid, al in merged]},
                          ensure_ascii=False, indent=2))
-        return
+        # 与文本模式口径一致：有问题就以退出码 1 阻断。
+        # （只在文本模式阻断的话，凡是拿 `--json` 当判据的流水线都会放过坏数据）
+        sys.exit(1 if (problems or yaml_errors) else 0)
 
     print(f"═══ 历史题库健康检查 ═══")
     print(f"题库路径：{require_vault()}（{' '.join(r.name for r in roots)}）")
@@ -369,10 +412,18 @@ def main():
             print(f"  {a}（{ca} 题）↔ {b}（{cb} 题）：{reason}")
         if len(area_hits) > 10:
             print(f"  …另有 {len(area_hits) - 10} 对（--json 可看全量）")
+    if yaml_errors:
+        print(f"\n⚠ frontmatter YAML 解析失败 {len(yaml_errors)} 个文件"
+              f"（整块属性失效：该题不会被识别为题目，检索/统计/组卷均取不到；已跳过其字段校验）")
+        for rel, brief in yaml_errors:
+            print(f"  {rel}：{brief}")
+        print("   常见成因：块标量 `|` / `>` 的内容未缩进、列表项缩进不齐、值中含未转义的 `: `"
+              "（字段规范见 references/fields.md）")
     if problems:
         print(f"\n⚠ 问题 {len(problems)} 项：")
         for p in problems:
             print(f"  {p}")
+    if problems or yaml_errors:
         sys.exit(1)
     print("\n✓ 无问题")
 
