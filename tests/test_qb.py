@@ -707,7 +707,7 @@ class TestIndexGeneration(unittest.TestCase):
         索引须为该行生成独立 `## 第N课 活动课 名称` 节，且 Dataview 查询课名与该行逐字一致。"""
         for name, lesson in (("7上-试题索引.md", "第21课 活动课 从考古发现看中华文明的起源"),
                              ("9上-试题索引.md", "第22课 活动课 唱响《国际歌》"),
-                             ("9下-试题索引.md", "第22课 活动课 英国脱欧")):
+                             ("9下-试题索引.md", "第22课 活动课 时事溯源——英国脱欧")):
             text = (self.vault / "1-MoC-索引" / name).read_text(encoding="utf-8")
             self.assertIn(f"## {lesson}", text, "%s 缺活动课节 %s" % (name, lesson))
             self.assertIn(f'contains(课, "{lesson}")', text,
