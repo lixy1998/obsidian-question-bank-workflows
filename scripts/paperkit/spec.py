@@ -23,6 +23,8 @@ KP_DROP_RE = re.compile(r"已弃用|待核|存疑|待删|废弃|新教材已")
 
 
 _LESSON_RE = re.compile(r"第\s*(\d+)\s*课")
+# 活动课行（方案A）：`第N课 活动课 名称`；兼容历史写法 `活动课 名称`（无编号）
+_ACTIVITY_RE = re.compile(r"^(?:第[\d一二三四五六七八九十]+课 )?活动课[ ：]")
 
 
 def effective_answer(r: dict) -> str:
@@ -38,9 +40,17 @@ def effective_answer(r: dict) -> str:
 
 
 def short_lesson(name) -> str:
-    """课名取「第X课」前缀，用于兼涉标注等紧凑场景。"""
-    m = _LESSON_RE.match(str(name).strip())
-    return f"第{m.group(1)}课" if m else str(name).strip()
+    """课名取「第X课」前缀，用于兼涉标注等紧凑场景。
+
+    活动课（`第N课 活动课 名称`，方案A 2026-10-06）**不缩为「第N课」**——否则会与
+    同号常规课撞名（如 9上 第22课 活动课 唱响《国际歌》 vs 常规第22课）。此种行
+    原样返回（本身即唯一课名）。
+    """
+    s = str(name).strip()
+    if _ACTIVITY_RE.match(s):
+        return s
+    m = _LESSON_RE.match(s)
+    return f"第{m.group(1)}课" if m else s
 
 
 def lesson_no(name):

@@ -255,8 +255,35 @@ class TestSchemaPure(unittest.TestCase):
         self.assertIn(("7上", "第4课 夏商西周王朝的更替"), lu)
         self.assertEqual(lu[("7上", "第4课 夏商西周王朝的更替")], "第2单元 夏商周时期")
 
-    def test_load_method_names_15个(self):
-        self.assertEqual(len(self.s.load_method_names()), 15)
+    def test_load_method_names_18个(self):
+        # 单元层级（2026-10-06 起）：方法名白名单＝「初中·学史方法（全六册）」总表，共 18 行
+        # （其中 7下/9上/9下 第 3 个方法名标 [?] 待核实，解析时剥除，仍计入白名单）。
+        names = self.s.load_method_names()
+        self.assertEqual(len(names), 18)
+        self.assertIn("如何从出土文物中获取信息", names)
+        self.assertTrue(all("[?]" not in n for n in names), "方法名不应残留 [?] 标记")
+
+    def test_load_method_units_挂载到各册(self):
+        # 各册版本节内「- 学史方法」单元下的课行 → (册别, 方法条目)；每册 3 条、共 18 条。
+        mu = self.s.load_method_units()
+        self.assertEqual(len(mu), 18)
+        self.assertIn(("7上", "如何阅读历史地图"), mu)
+        self.assertIn(("9下", "如何写作历史小论文"), mu)
+        for b in ("7上", "7下", "8上", "8下", "9上", "9下"):
+            self.assertEqual(sum(1 for x in mu if x[0] == b), 3, "%s 学史方法条目数应为 3" % b)
+
+    def test_load_lesson_units_学史方法归属单元(self):
+        # 学史方法为单元层级：unit 解析为「学史方法」
+        lu = self.s.load_lesson_units()
+        self.assertEqual(lu.get(("7上", "如何阅读历史地图")), "学史方法")
+        self.assertEqual(lu.get(("9下", "如何写作历史小论文")), "学史方法")
+
+    def test_validate_lesson_学史方法新写法与旧前缀兼容(self):
+        # 新写法：课名＝方法条目本身；旧前缀写法兼容（存量迁移期）
+        self.s.validate_lesson({"册别": ["9下"], "课": ["如何写作历史小论文"]})
+        self.s.validate_lesson({"册别": ["9下"], "课": ["学史方法-如何写作历史小论文"]})
+        with self.assertRaises(self.s.SchemaError):
+            self.s.validate_lesson({"册别": ["9下"], "课": ["如何写作历史小论文儿"]})
 
 
 class TestAreaSimilarPure(unittest.TestCase):
@@ -555,6 +582,10 @@ class TestPaperkitPure(unittest.TestCase):
         self.assertEqual(self.effective_answer(rec), "B")             # A 位换到第 2 位
         self.assertEqual(self.effective_answer({"fm": {"答案": "A"}}), "A")
         self.assertEqual(self.short_lesson("第4课 夏商西周王朝的更替"), "第4课")
+        # 活动课（方案A）不缩为「第N课」，否则与同号常规课撞名
+        self.assertEqual(self.short_lesson("第22课 活动课 唱响《国际歌》"),
+                         "第22课 活动课 唱响《国际歌》")
+        # 兼容历史无编号写法
         self.assertEqual(self.short_lesson("活动课 新时代社会生活的巨大变化"),
                          "活动课 新时代社会生活的巨大变化")
 
@@ -662,6 +693,30 @@ class TestIndexGeneration(unittest.TestCase):
         text = (self.vault / "1-MoC-索引" / "7上-试题索引.md").read_text(encoding="utf-8")
         self.assertIn('FROM "初中-1中考真题" OR "初中-2中考模拟题" OR "初中-3阶段测试"', text)
         self.assertNotIn("高中-", text)
+
+    def test_册索引含学史方法单元节(self):
+        """学史方法改为教材单元层级（2026-10-06 起）：册索引须生成 `## 学史方法` 节 +
+        每方法条目 `### 方法名` + Dataview 块（带单元限定，避免课名撞车）。"""
+        for name in ("7上-试题索引.md", "9下-试题索引.md"):
+            text = (self.vault / "1-MoC-索引" / name).read_text(encoding="utf-8")
+            self.assertIn("## 学史方法", text, "%s 缺学史方法单元节" % name)
+            self.assertIn('contains(单元, "学史方法")', text)
+
+    def test_册索引含活动课节(self):
+        """活动课方案A（2026-10-06）：各册活动课写作 `第N课 活动课 名称`（顶格），
+        索引须为该行生成独立 `## 第N课 活动课 名称` 节，且 Dataview 查询课名与该行逐字一致。"""
+        for name, lesson in (("7上-试题索引.md", "第21课 活动课 从考古发现看中华文明的起源"),
+                             ("9上-试题索引.md", "第22课 活动课 唱响《国际歌》"),
+                             ("9下-试题索引.md", "第22课 活动课 英国脱欧")):
+            text = (self.vault / "1-MoC-索引" / name).read_text(encoding="utf-8")
+            self.assertIn(f"## {lesson}", text, "%s 缺活动课节 %s" % (name, lesson))
+            self.assertIn(f'contains(课, "{lesson}")', text,
+                          "%s 活动课 Dataview 查询值不符" % name)
+        t7 = (self.vault / "1-MoC-索引" / "7上-试题索引.md").read_text(encoding="utf-8")
+        self.assertIn("### 如何阅读历史地图", t7)
+        self.assertIn('contains(课, "如何阅读历史地图")', t7)
+        self.assertIn("### 如何从出土文物中获取信息", t7)
+        self.assertIn("### 如何掌握历史纪年法", t7)
 
     def test_选修索引用专题课名(self):
         text = (self.vault / "1-MoC-索引" / "选修1-试题索引.md").read_text(encoding="utf-8")

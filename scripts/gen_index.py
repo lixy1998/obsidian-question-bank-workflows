@@ -15,8 +15,10 @@
     解析器对二者同样适用。
 
 词表路径/册别-版本映射复用 qb_schema（BOOK_INDEX_PATH / BOOK_INDEX_VERSION /
-GAOZHONG_SECTIONS），不重复硬编码；「学史方法」栏目由独立索引文档承载
-（1-MoC-索引/学史方法-试题索引.md），不在册索引内生成 (一)(二)(三) 空查询块。
+GAOZHONG_SECTIONS），不重复硬编码。
+「学史方法」自 2026-10-06 起改为**教材单元层级**（单元＝`学史方法`，课＝方法条目本身），
+故按普通单元一并生成 `## 学史方法` 节 + 每方法条目 `### 方法名` + Dataview 查询块；
+另有独立索引文档 `1-MoC-索引/学史方法-试题索引.md` 汇总全六册（属 3-试题研究 侧产物，不由本脚本生成）。
 """
 import argparse
 import re
@@ -44,8 +46,6 @@ def out_dir() -> Path:
     """索引输出目录（惰性求值：qb_schema.VAULT 改用模块级 __getattr__ 后，
     模块导入期不再触碰 vault，未配置时也能 `--help`）。"""
     return require_vault() / "1-MoC-索引"
-# 学史方法栏目组标题：由独立索引文档承载，册索引跳过（避免生成空查询块）
-SKIP_GROUPS = {"学史方法"}
 
 
 def targets() -> list:
@@ -93,6 +93,18 @@ def section_lines(books, 册, 节, is_ms):
     return books.get(节)
 
 
+def _is_activity_lesson(name: str) -> bool:
+    """判断顶格行是否为活动课条目。
+
+    方案A（2026-10-06）后活动课写作 `第N课 活动课 名称`（顶格，教材目录体例）；
+    兼容历史写法 `活动课 名称`（无编号）。判据：行内含「活动课」且不在子目/单元语境
+    （顶格行 + 「活动课」前后为空白或行首）。
+    """
+    if name.startswith("活动课"):
+        return True
+    return bool(re.match(r"^第[\d一二三四五六七八九十]+课 活动课 ", name))
+
+
 def parse_groups(lines):
     """返回 [(组标题, [课条目, ...]), ...]
 
@@ -100,6 +112,9 @@ def parse_groups(lines):
     课条目 = 第X课 / 活动课 / 专题X.Y（缩进2）；活动课顶格时自身作为唯一条目
     缩进 ≥4 为课的**子目**（①…），不生成查询块——子目不写在题目的 `课` 字段里
     （题目的课 = 第X课/专题X.Y，子目另有 `小节` 字段承载）。
+
+    条目名尾随的待核实标记 `[?]` 一律剥除（与 qb_schema._strip_unverified 同口径）——
+    否则会写进标题与 Dataview 查询值，既污染索引又与题库课名不符。
     """
     groups = []
     for raw in lines:
@@ -109,7 +124,7 @@ def parse_groups(lines):
         content = raw.strip()
         if not content.startswith("- "):
             continue
-        name = content[2:].strip()
+        name = qb_schema._strip_unverified(content[2:].strip())
         if not name:
             continue
         if indent == 0:
@@ -117,8 +132,8 @@ def parse_groups(lines):
                 # 「附录 朝代表、大事年表」这类非课内容不建索引节（用户裁定：不需要）；
                 # 词表里也不应再写这类行，此处是防回归守卫
                 continue
-            if name.startswith("活动课"):
-                groups.append([name, [name]])  # 活动课本身即课条目
+            if _is_activity_lesson(name):
+                groups.append([name, [name]])  # 活动课本身即课条目（方案A：行作组标题兼唯一条目）
             else:
                 groups.append([name, []])
         elif indent == 2:
@@ -128,10 +143,13 @@ def parse_groups(lines):
     return groups
 
 
-def dv_query(册, 课名):
+def dv_query(册, 课名, 单元=None):
     """Dataview DQL 函数语法：`contains(字段, 值)`，参数必须双引号。
     DQL 里 `CONTAINS` 是函数而非操作符，「字段 CONTAINS 值」写法不被 parser 识别。
     中文引号（“”）在双引号字符串内是普通字符，无害。
+
+    `单元` 传入时在 WHERE 中追加 `contains(单元,"单元名")`——用于**单元名与课名可撞车**的
+    场景（如学史方法：单元名固定 `学史方法`，课名为方法条目；同名课可能出现在其他单元下）。
 
     ⚠ id 为多值 list（一题多卷）：题号列直接显示 `id`——多卷收录的题会显示
     「主卷id, 别名卷id」一串，正是所需信息；**排序不能用 `SORT id`（对 list 排序语义不明）**，
@@ -139,11 +157,14 @@ def dv_query(册, 课名):
     """
     src = " OR ".join(f'"{s}"' for s in data_sources(册))
     safe = 课名.replace('"', '\\"')  # 兜底 ASCII 引号转义，当前词表无
+    where = f'contains(册别, "{册}") AND contains(课, "{safe}")'
+    if 单元:
+        where += f' AND contains(单元, "{单元.replace(chr(34), chr(92)+chr(34))}")'
     return (
         "```dataview\n"
         "TABLE id AS 题号, 课, 知识点, 题型, 素养层次水平, 关键能力\n"
         f"FROM {src}\n"
-        f'WHERE contains(册别, "{册}") AND contains(课, "{safe}")\n'
+        f"WHERE {where}\n"
         "SORT file.name ASC\n"
         "```"
     )
@@ -162,17 +183,18 @@ def build_index(册, 节, is_ms=True):
     L.append("> - 跨课/跨册题目会同时出现在其命中的多个课块下。")
     L.append("")
     for gtitle, items in groups:
-        if gtitle in SKIP_GROUPS:
-            continue  # 学史方法等栏目由独立索引文档承载，册索引不生成空块
         L.append(f"## {gtitle}")
         L.append("")
         if not items:
             L.append("_（无课条目）_")
             L.append("")
+        # 学史方法为单元层级（2026-10-06 起）：单元名固定 `学史方法`，课名＝方法条目本身，
+        # 查询需带单元限定（避免与其他单元的课名撞车）；单元标题即由词表 `- 学史方法` 行承载。
+        unit_scope = gtitle if gtitle == qb_schema.METHOD_UNIT else None
         for item in items:
             L.append(f"### {item}")
             L.append("")
-            L.append(dv_query(册, item))
+            L.append(dv_query(册, item, unit_scope))
             L.append("")
     return "\n".join(L)
 

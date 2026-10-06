@@ -29,7 +29,7 @@ from qb_schema import (BOOKS, DIFFICULTIES, REQUIRED_FIELDS, TYPES,
                        TYPE_ALIASES,
                        SchemaError, as_list, is_question_file,
                        split_frontmatter, stage_roots, validate_lesson,
-                       load_lesson_units, METHOD_PREFIX)
+                       load_lesson_units, load_method_names, METHOD_UNIT)
 
 try:
     import yaml
@@ -151,6 +151,7 @@ def scan(roots, only_vol: str = None):
     pair_hits = []     # 多值配对提示：[rel, 无课承接的单元 set, 册别重复项 set]（提示级）
     # 课名 -> [(册别, 单元全称), ...]（多值录入兜底：课的所属单元/册别应写进本题对应字段）
     lesson2loc = {}
+    method_names = load_method_names()  # 学史方法条目白名单（单元＝学史方法，课＝方法条目本身）
     for (b, name), u in load_lesson_units().items():
         lesson2loc.setdefault(name, []).append((b, u))
     for root in roots:
@@ -204,8 +205,8 @@ def scan(roots, only_vol: str = None):
             _books, _units = set(as_list(fm.get("册别"))), set(as_list(fm.get("单元")))
             miss_u, miss_b = set(), set()
             for _k in as_list(fm.get("课")):
-                if str(_k).startswith(METHOD_PREFIX):
-                    continue
+                if str(_k) in method_names:
+                    continue  # 学史方法题目的「单元」由方法条目自身承载，不按普通课取所属单元
                 cands = lesson2loc.get(str(_k))
                 if not cands:
                     continue  # 词表未收录（如高中自定义/新增课）→ 跳过，不误报
@@ -229,8 +230,8 @@ def scan(roots, only_vol: str = None):
                 seen_u = []
                 _unresolved = False
                 for _k in _lesson_list:
-                    if str(_k).startswith(METHOD_PREFIX):
-                        continue          # 学史方法类目不占单元，不计入
+                    if str(_k) in method_names:
+                        continue          # 学史方法单元固定、有一对一归属，不参与「单元多于课」判据
                     _locs = lesson2loc.get(str(_k), [])
                     if not _locs:
                         _unresolved = True    # 词表查不到该课 → 判据不可靠，本项不报

@@ -151,9 +151,25 @@ def validate_record(rec: dict) -> None:
 BOOK_INDEX_PATH = Path(__file__).parent / "BOOK_INDEX.md"
 _BOOK_CACHE = None
 _METHOD_CACHE = None
-# 学史方法（全六册）课名前缀：课名写作 `学史方法-<完整方法名>`，
-# 校验只查方法名是否在「## 初中·学史方法（全六册）」15 表内（不按册别，见 load_method_names）
-METHOD_PREFIX = "学史方法-"
+_METHOD_UNIT_CACHE = None
+# 学史方法（全六册）：**单元层级**（2026-10-06 改）——单元名固定 `学史方法`，
+# 课名＝方法条目本身（如 `如何从出土文物中获取信息`，**不带任何前缀**）。
+# 权威清单＝BOOK_INDEX「## 初中·学史方法（全六册）」总表；
+# 各册版本节内亦按单元体例列出（`- 学史方法` + 缩进方法条目），两处逐字一致。
+METHOD_UNIT = "学史方法"
+# 活动课（方案A，2026-10-06 定）：词表写作顶格 `第N课 活动课 名称`（教材目录体例，N 接该册
+# 常规课末号顺延）；题目的 **单元** 字段统一写 `活动课`（活动课不属任何常规单元），**课** 写整行。
+ACTIVITY_UNIT = "活动课"
+# 匹配活动课词表行（顶格）：`第N课 活动课 名称`；兼容历史无编号写法 `活动课 名称`
+_ACTIVITY_LINE_RE = re.compile(r"^ {0,2}- ((?:第[\d一二三四五六七八九十]+课 活动课 .+)|(?:活动课 .+))$")
+# 待核实标记：词表里方法名/子目不确定时尾随 `[?]`（如「如何编写历史剧本[?]」），
+# 解析时一律剥除，**不进入课名白名单**（否则写进题库的课名会带标记）。
+_UNVERIFIED_RE = re.compile(r"\s*\[\?\]\s*$")
+
+
+def _strip_unverified(name: str) -> str:
+    """剥除词表条目尾随的「待核实」标记 `[?]`。"""
+    return _UNVERIFIED_RE.sub("", str(name).strip()).strip()
 
 # 册别 -> 校验用词表版本节（按教材首印定版年份；首用后仅小修订、目录无变化，不建新版词表）
 # 7上/7下 2024 首印定版（2024版）；8上/8下 2025 首印定版（2025版）；9上/9下 2026 首印定版（2026版）
@@ -203,10 +219,21 @@ def load_book_index() -> dict:
                                  and ver.group(1) == BOOK_INDEX_VERSION.get(cur_book))
             continue
         if in_target and cur_book:
-            # 活动课/单元行顶格、正课缩进2格；选修模块的「专题X.Y 名称」行亦按课名收录（2026-09-28）
-            m2 = re.match(r"^ {0,2}- (第\d+课 .+|活动课 .+|专题\d+\.\d+ .+)", line)
+            # 体例：单元行顶格 `- 第X单元 …` / `- 学史方法`；课行缩进 2 格。
+            # 但「活动课」「专题X.Y」在词表里既可顶格亦曾缩进，故两种缩进都收。
+            # 学史方法改为单元层级（2026-10-06）：`- 学史方法` 顶格为**单元**（不收录），
+            # 其下缩进 2 格的**方法条目**按课名收录（条目名尾随 `[?]` 剥除）。
+            m2 = re.match(r"^ {2,}- (.+)", line)
             if m2:
-                index.setdefault(cur_book, []).append(m2.group(1).strip())
+                name = _strip_unverified(m2.group(1).strip())
+                if re.match(r"^(第\d+课 .+|活动课 .+|专题\d+\.\d+ .+)", name):
+                    index.setdefault(cur_book, []).append(name)
+                elif name in load_method_names():
+                    index.setdefault(cur_book, []).append(name)  # 学史方法条目按课名收录
+                continue
+            m2o = re.match(r"^ {0,2}- ((?:第\d+课 .+)|(?:活动课 .+)|(?:专题\d+\.\d+ .+))", line)
+            if m2o:
+                index.setdefault(cur_book, []).append(m2o.group(1).strip())
     _BOOK_CACHE = index
     return index
 
@@ -222,8 +249,8 @@ GAOZHONG_SECTIONS = {
     "选修1 史学入门": "选修1",
     "选修2 史料研读": "选修2",
 }
-_UNIT_RE = re.compile(r"^- ((?:第[0-9一二三四五六七八九十]+单元 .+)|(?:选修[0-9] .+))$")  # 单元行；选修模块以模块名为「单元」
-_LESSON_RE = re.compile(r"^ {2,}- ((?:第\d+课 .+?)|(?:专题\d+\.\d+ .+?))$")  # 课行；选修模块以课标专题为「课」
+_UNIT_RE = re.compile(r"^- ((?:第[0-9一二三四五六七八九十]+单元 .+)|(?:选修[0-9] .+)|(?:学史方法)|(?:活动课))$")  # 单元行；选修以模块名为「单元」，学史方法/活动课为固定单元
+_LESSON_RE = re.compile(r"^ {2,}- ((?:第\d+课 .+?)|(?:专题\d+\.\d+ .+?)|(?:如何.+?))$")  # 课行；选修以课标专题为「课」，学史方法以「如何…」方法条目为「课」
 _UNIT_CACHE = None
 
 
@@ -265,19 +292,27 @@ def load_lesson_units() -> dict:
         if mu:
             cur_unit = mu.group(1).strip()
             continue
+        # 活动课（方案A）：顶格 `第N课 活动课 名称`——**单元固定为 `活动课`**、课名为整行
+        # （活动课不属任何常规单元；此映射供 scan 提示「单元应写 活动课」）
+        if _ACTIVITY_LINE_RE.match(line):
+            name = _strip_unverified(_ACTIVITY_LINE_RE.match(line).group(1).strip())
+            out[(cur_book, name)] = ACTIVITY_UNIT
+            cur_unit = ACTIVITY_UNIT
+            continue
         ml = _LESSON_RE.match(line)
         if ml and cur_unit:
-            out[(cur_book, ml.group(1).strip())] = cur_unit
+            out[(cur_book, _strip_unverified(ml.group(1).strip()))] = cur_unit
     _UNIT_CACHE = out
     return out
 
 
 def load_method_names() -> set:
-    """解析 BOOK_INDEX「初中·学史方法（全六册）」表格 → {方法名, ...}。
+    """解析 BOOK_INDEX「初中·学史方法（全六册）」表格 → {方法名, ...}（**权威清单**）。
 
     该栏目不属于任何册别词表节，以表格总列 15 个方法（`## 初中·学史方法（全六册）`，
-    行形如 `| 1 | 如何从出土文物中获取信息 | 7上 |`）。题库课名规范写作
-    `学史方法-<完整方法名>`，校验时只比对方法名（**不按册别**）。
+    行形如 `| 1 | 如何从出土文物中获取信息 | 7上 |`）。题库**单元**写 `学史方法`、
+    **课**写方法条目本身（如 `如何从出土文物中获取信息`），校验时只比对方法名
+    （**不按册别**）。条目尾随的待核实标记 `[?]` 一律剥除，不进白名单。
     """
     global _METHOD_CACHE
     if _METHOD_CACHE is not None:
@@ -295,20 +330,69 @@ def load_method_names() -> set:
             if in_sec:
                 m = re.match(r"^\|\s*\d+\s*\|\s*([^|]+?)\s*\|", s)
                 if m:
-                    names.add(m.group(1).strip())
+                    names.add(_strip_unverified(m.group(1)))
     _METHOD_CACHE = names
     return names
+
+
+def load_method_units() -> set:
+    """(册别, 方法条目) 集合——由各册版本节内「- 学史方法」单元下的课行解析。
+
+    与 `load_method_names()`（总表白名单）互为印证：前者是权威清单，本函数反映
+    **各册实际挂载**（未核实册别的方法名亦会被收录，同样剥除 `[?]`）。
+    用途：`scan_questions.py` 定位字段提示——学史方法题的「单元」应写 `学史方法`。
+    """
+    global _METHOD_UNIT_CACHE
+    if _METHOD_UNIT_CACHE is not None:
+        return _METHOD_UNIT_CACHE
+    out = set()
+    if BOOK_INDEX_PATH.exists():
+        cur_book = cur_ver = None
+        in_target = False
+        in_method = False
+        for line in BOOK_INDEX_PATH.read_text(encoding="utf-8").splitlines():
+            m = re.match(r"^### (\S+)", line)
+            if m:
+                cur_book, cur_ver, in_target, in_method = m.group(1), None, False, False
+                continue
+            if line.startswith("#### "):
+                title = line[5:].strip()
+                ver = re.match(r"^(20\d\d版)", title)
+                if title in GAOZHONG_SECTIONS:
+                    cur_book, in_target = GAOZHONG_SECTIONS[title], True
+                else:
+                    in_target = bool(cur_book and ver
+                                     and ver.group(1) == BOOK_INDEX_VERSION.get(cur_book))
+                in_method = False
+                continue
+            if not (in_target and cur_book):
+                continue
+            raw = line.rstrip()
+            indent = len(raw) - len(raw.lstrip(" "))
+            content = raw.strip()
+            if not content.startswith("- "):
+                continue
+            name = content[2:].strip()
+            if indent == 0:
+                in_method = (name == METHOD_UNIT)
+                continue
+            if indent == 2 and in_method and name:
+                out.add((cur_book, _strip_unverified(name)))
+    _METHOD_UNIT_CACHE = out
+    return out
 
 
 def validate_lesson(rec: dict) -> None:
     """校验课名是否在 BOOK_INDEX 词表中（课/册别支持多值）。
 
     策略：
-    - `学史方法-<方法名>`：只校验方法名是否在「初中·学史方法（全六册）」15 表内（**不按册别**——
-      各册分配尚待确认，且中高考题常按「史事 + 方法维度」跨册标注，严格按册会误伤）；
+    - **学史方法**（单元层级，2026-10-06 起）：`单元` 写 `学史方法`、`课` 写**方法条目本身**
+      （如 `如何从出土文物中获取信息`），只校验方法名是否在「初中·学史方法（全六册）」总表内
+      （**不按册别**——各册分配尚待确认，且中高考题常按「史事 + 方法维度」跨册标注，严格按册会误伤）；
+      兼容旧前缀写法 `学史方法-<方法名>`（存量迁移期）；
     - 册别列表中某册别收录了词表（7上~9下按 BOOK_INDEX_VERSION 映射版本节）→ 该册别课程名须命中词表；
     - 册别列表中若存在未收录词表的册别（高中各册与选修现均已收录；新增册别尚未建表时）→ 无法校验的课名视为通过（不误报）；
-    - 全部册别均未收录词表 → 跳过课名校验（学史方法的方法名校验不受此影响）。
+    - 全部课名都是学史方法 → 方法名校验已完成，跳过册别词表校验。
     """
     books = as_list(rec.get("册别"))
     lessons = as_list(rec.get("课"))
@@ -317,13 +401,17 @@ def validate_lesson(rec: dict) -> None:
     methods = load_method_names()
     rest = []
     for lesson in lessons:
-        if lesson.startswith(METHOD_PREFIX):
-            name = lesson[len(METHOD_PREFIX):].strip()
-            if methods and name not in methods:
-                raise SchemaError(
-                    f"学史方法名不在 BOOK_INDEX「初中·学史方法（全六册）」表中：'{name}'"
-                    f"（共 {len(methods)} 个；规范写法 `{METHOD_PREFIX}<完整方法名>`）")
+        # 学史方法（单元层级，2026-10-06 起）：课名＝方法条目本身（无前缀），
+        # 只校验方法名是否在「初中·学史方法（全六册）」总表内，**不按册别**。
+        # 兼容旧写法 `学史方法-<方法名>`（存量迁移期）：剥前缀后同样按方法名比对。
+        name = lesson[len("学史方法-"):].strip() if lesson.startswith("学史方法-") else lesson
+        if name in methods:
             continue
+        if lesson.startswith("学史方法-"):
+            raise SchemaError(
+                f"学史方法名不在 BOOK_INDEX「初中·学史方法（全六册）」表中：'{name}'"
+                f"（共 {len(methods)} 个；现行为单元层级，课名直接写方法条目如 `如何从出土文物中获取信息`，"
+                f"不再带 `学史方法-` 前缀）")
         rest.append(lesson)
     if not rest:
         return  # 全部课名都是学史方法 → 方法名校验已完成，跳过册别词表校验
