@@ -255,22 +255,28 @@ class TestSchemaPure(unittest.TestCase):
         self.assertIn(("7上", "第4课 夏商西周王朝的更替"), lu)
         self.assertEqual(lu[("7上", "第4课 夏商西周王朝的更替")], "第2单元 夏商周时期")
 
-    def test_load_method_names_18个(self):
-        # 单元层级（2026-10-06 起）：方法名白名单＝「初中·学史方法（全六册）」总表，共 18 行
-        # （其中 7下/9上/9下 第 3 个方法名标 [?] 待核实，解析时剥除，仍计入白名单）。
+    def test_load_method_names_15个(self):
+        # 单元层级（2026-10-06 起）：方法名白名单＝「初中·学史方法（全六册）」总表。
+        # 2026-10-06 校正：原误列 3 项（如何区分史实与观点/如何编写历史剧本/如何开展历史调查）
+        # 经核实该 3 册各只 2 个方法，已删；全六册共 15 个（7上3/7下2/8上3/8下3/9上2/9下2）。
         names = self.s.load_method_names()
-        self.assertEqual(len(names), 18)
+        self.assertEqual(len(names), 15)
         self.assertIn("如何从出土文物中获取信息", names)
+        self.assertNotIn("如何区分史实与观点", names)
+        self.assertNotIn("如何编写历史剧本", names)
+        self.assertNotIn("如何开展历史调查", names)
         self.assertTrue(all("[?]" not in n for n in names), "方法名不应残留 [?] 标记")
 
     def test_load_method_units_挂载到各册(self):
-        # 各册版本节内「- 学史方法」单元下的课行 → (册别, 方法条目)；每册 3 条、共 18 条。
+        # 各册版本节内「- 学史方法」单元下的课行 → (册别, 方法条目)；共 15 条。
         mu = self.s.load_method_units()
-        self.assertEqual(len(mu), 18)
+        self.assertEqual(len(mu), 15)
         self.assertIn(("7上", "如何阅读历史地图"), mu)
         self.assertIn(("9下", "如何写作历史小论文"), mu)
-        for b in ("7上", "7下", "8上", "8下", "9上", "9下"):
-            self.assertEqual(sum(1 for x in mu if x[0] == b), 3, "%s 学史方法条目数应为 3" % b)
+        # 每册条数：7上3/7下2/8上3/8下3/9上2/9下2
+        expect = {"7上": 3, "7下": 2, "8上": 3, "8下": 3, "9上": 2, "9下": 2}
+        for b, n in expect.items():
+            self.assertEqual(sum(1 for x in mu if x[0] == b), n, "%s 学史方法条目数应为 %d" % (b, n))
 
     def test_load_lesson_units_学史方法归属单元(self):
         # 学史方法为单元层级：unit 解析为「学史方法」
