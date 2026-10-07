@@ -819,8 +819,9 @@ class TestReadmeTree(unittest.TestCase):
         return entries
 
     def _actual_entries(self):
+        # `.local-backup` 是仓库侧的本地备份目录（已入 .gitignore），不随分发、也不登记进 README 树
         skip = {"__pycache__", "_tmp", "_snap", "_dbg", "_dbg2", "_audit_tmp",
-                "_acl-recovery", ".git"}
+                "_acl-recovery", ".git", ".local-backup"}
         return {str(p.relative_to(SKILL)).replace("\\", "/")
                 for p in SKILL.rglob("*") if not any(s in p.parts for s in skip)}
 
