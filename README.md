@@ -49,6 +49,7 @@ Obsidian历史题库搭建与组卷/          # 仓库工作区：D:\WorkDaily-�
 │   ├── read_docx.py              # docx 结构化提取（免 MinerU；只接 .docx）
 │   ├── import_from_md.py         # 源 md → 录入 JSON：批量回填题干/选项（链路B 第二步）
 │   ├── pull_pdf_images.py        # 从官方 PDF 裁剪补图（输出格式守卫：TIFF 自动转 PNG）
+│   ├── find_better_images.py     # 低质图筛查 + 开放图库候选检索（只读辅助，不自动替换图片）
 │   ├── fix_image_formats.py      # 图片格式巡检修复（不可显示格式 → jpg/png，同步改引用，原图入回收站）
 │   ├── fix_arabic_numerals.py    # 中文数字 → 阿拉伯数字批量转换
 │   ├── fix_table_render.py       # md 表格不渲染两类根因修复（补空行 / 引用块内转 HTML）
