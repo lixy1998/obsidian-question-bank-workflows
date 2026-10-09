@@ -215,10 +215,11 @@ def render_candidates(pairs, limit, retry, interval):
             lines.append("- 无命中（改走 WebSearch 定向找博物馆官网等）")
         else:
             lines.append("")
-            lines.append("| 候选文件 | 分辨率 | 许可 |")
-            lines.append("|---|---|---|")
+            lines.append("| 候选文件 | 分辨率 | 许可 | 下载 |")
+            lines.append("|---|---|---|---|")
             for r in res:
-                lines.append(f"| {r['title'][:70]} | {r['size']} | {r['lic']} |")
+                # 文件名不截断（截断后无法按名下载）；附直链便于下载与核对
+                lines.append(f"| {r['title']} | {r['size']} | {r['lic']} | [直链]({r['url']}) |")
         lines.append("")
     return "\n".join(lines)
 
