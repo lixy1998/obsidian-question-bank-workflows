@@ -5,8 +5,8 @@
 （人工或 fix_image_formats.py）换图」。换图会改变题目的史料载体，必须逐张人审。
 
 ① 筛查（`--卷` / `--全库`）：按门槛列出低质图，附所在卷 / 题号 / 图注（图注即天然检索词）
-    严格档：边长 <150px 或 体积 <6KB      （明显低质，优先处理）
-    宽松档（默认）：边长 <300px 或 体积 <20KB
+    严格档：短边 <120px 或 总像素 <4 万     （明显低质，优先处理）
+    宽松档（默认）：短边 <200px 或 总像素 <12 万
 ② 检索（`--查 <词>` / `--查表 <文件>`）：对检索词查 Wikimedia Commons，出候选
     （文件名 / 分辨率 / 许可 / URL）。**英文词命中率显著高于中文**（2026-10-09 实测），
     建议中英双轨、英文优先。无命中的改走 WebSearch 定向找博物馆官网等。
@@ -44,13 +44,17 @@ PIL_Image = try_import("PIL.Image")   # 可选：缺 Pillow 时降级为「只�
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 UA = "tnote-find-better-images/1.0 (Obsidian history question bank image audit)"
 
-# 门槛：严格 / 宽松 → (最小边长(px), 最小体积(byte))
+# 门槛：严格 / 宽松 → (最小短边(px), 最小总像素)
+# ⚠ 用「短边 / 总像素」判分辨率，不用体积——线稿、表格、时间轴这类图压缩率高、体积天然小，
+#    按体积判会把「宽扁的线框图」（实测 1334x268 的主题一时间轴）误报为低质（2026-10-09）。
 THRESHOLDS = {
-    "严格": (150, 6 * 1024),
-    "宽松": (300, 20 * 1024),
+    "严格": (120, 40_000),
+    "宽松": (200, 120_000),
 }
 IMG_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"}
 MD_IMG = re.compile(r"!\[[^\]]*\]\((images/[^)\s]+)\)")
+# 选项行（如「(A) 历史价值  (B) 科技价值 …」）——选择题图片下一行常是它，不能当图注
+OPT_LINE = re.compile(r"[（(][A-D][)）]")
 
 
 # ------------------------------------------------------------
@@ -104,14 +108,14 @@ def collect_captions(note_path):
                     s = lines[k].strip()
                     if not s:
                         continue
-                    if "![" not in s and not s.startswith("|"):
+                    if "![" not in s and not s.startswith("|") and not OPT_LINE.search(s):
                         cap[name] = s
                     break
     return cap
 
 
 def scan(vault, vols=None, level="宽松"):
-    min_px, min_bytes = THRESHOLDS[level]
+    min_short, min_area = THRESHOLDS[level]
     root = Path(vault)
     target_dirs = []
     for seg in ["初中-1中考真题", "初中-2中考模拟题", "初中-3阶段测试",
@@ -140,7 +144,11 @@ def scan(vault, vols=None, level="宽松"):
                     continue
                 sz = f.stat().st_size
                 w, h = image_size(f)
-                if (w and h and (w < min_px or h < min_px)) or sz < min_bytes:
+                if w and h:
+                    low = min(w, h) < min_short or w * h < min_area
+                else:                     # 缺 Pillow → 降级：只看极端小体积
+                    low = sz < 5 * 1024
+                if low:
                     rows.append({
                         "卷": vol, "类别": seg, "题型目录": sub.name,
                         "文件": f.name, "字节": sz, "尺寸": f"{w}x{h}" if w else "-",
@@ -183,7 +191,7 @@ def commons_search(kw, limit, retry, interval):
 def render_report(rows, level, vault):
     lines = [f"# 低质图清单（门槛：{level}）", "",
              f"- 题库：`{vault}`",
-             f"- 判定：{'边长<' + str(THRESHOLDS[level][0]) + 'px 或 体积<' + str(THRESHOLDS[level][1] // 1024) + 'KB'}",
+             f"- 判定：短边 <{THRESHOLDS[level][0]}px 或 总像素 <{THRESHOLDS[level][1]:,}",
              f"- 合计：**{len(rows)} 张**", "",
              "| 卷 | 题型 | 文件 | 尺寸 | 体积 | 图注（检索词） |",
              "|---|---|---|---|---|---|"]
@@ -225,7 +233,7 @@ def main():
                     help="限定卷名（可重复）；与 --全库 二选一")
     ap.add_argument("--全库", action="store_true", help="扫描全部卷")
     ap.add_argument("--门槛", choices=list(THRESHOLDS), default="宽松",
-                    help="严格＝边长<150px 或 <6KB；宽松（默认）＝边长<300px 或 <20KB")
+                    help="严格＝短边<120px 或 总像素<4万；宽松（默认）＝短边<200px 或 总像素<12万")
     ap.add_argument("--查", action="append", default=[], help="检索词（可重复）")
     ap.add_argument("--查表", help="检索词文件（每行一个，支持「中文 | English」双轨）")
     ap.add_argument("--条数", type=int, default=3, help="每次检索返回候选条数（默认 3）")
