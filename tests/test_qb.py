@@ -32,7 +32,8 @@ sys.path.insert(0, str(SCRIPTS))
 # 没有 argparse，**不要**对它们执行（历史事故：无 argparse 的脚本会把 `--help` 当普通参数执行 main）。
 CLI_SCRIPTS = [
     "backtrace_paper.py", "check_note_links.py", "dedupe_questions.py",
-    "edit_fields.py", "export_student_paper.py", "fix_arabic_numerals.py",
+    "edit_fields.py", "export_student_paper.py",
+    "find_better_images.py", "fix_arabic_numerals.py",
     "fix_image_formats.py", "fix_item_spacing.py", "fix_quote_to_plain.py", "fix_table_render.py",
     "gen_index.py", "gen_problem.py", "import_from_md.py",
     "linkify_citations.py", "pull_pdf_images.py",
