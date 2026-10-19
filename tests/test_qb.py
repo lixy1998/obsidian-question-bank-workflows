@@ -501,6 +501,23 @@ class TestEndToEnd(TempVaultMixin, unittest.TestCase):
         self.assertIn("题目总数：1", r2.stdout.replace(" ", ""), "坏文件不应计入题目总数")
 
 
+class Test卷结构_题号口径(TempVaultMixin, unittest.TestCase):
+    """序号＝原卷面题号（v1.29.0）：合卷跳号不判不合规；跨题型重号仍判不合规。"""
+
+    def test_合卷跳号_判需人工而非不合规(self):
+        self.make_question(序号="24")
+        self.make_question(序号="41", 题型="材料解析题")
+        r = self.run_cli("verify_paper_layout.py", "--卷", "2026测试卷", expect=0)
+        self.assertIn("跳号", r.stdout, "合卷跳号未报出：\n%s" % r.stdout[-800:])
+        self.assertIn("需人工", r.stdout)
+
+    def test_跨题型重号_判不合规(self):
+        self.make_question(序号="24")
+        self.make_question(序号="24", 题型="材料解析题")
+        r = self.run_cli("verify_paper_layout.py", "--卷", "2026测试卷", expect=1)
+        self.assertIn("重号", r.stdout, "重号未报出：\n%s" % r.stdout[-800:])
+
+
 class TestDocxRender(TempVaultMixin, unittest.TestCase):
     """Word 卷渲染护栏（拆分 export_student_paper.py 前的安全网）。
 

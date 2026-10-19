@@ -185,7 +185,7 @@ python export_student_paper.py --清单 组卷清单.yaml --均衡选项
 ```bash
 python verify_paper_layout.py --docx "<成卷.docx>" --清单 <组卷清单.yaml>   # Word 卷：版式 + 表图完整性
 python verify_paper_layout.py --docx "<成卷.docx>"        # 只查版式（不给清单则跳过 D1）
-python verify_paper_layout.py --卷 <卷名>                  # 题库卷结构层：题号连续/选项/图片/学生卷无答案
+python verify_paper_layout.py --卷 <卷名>                  # 题库卷结构层：题号唯一（合卷跳号放行）/选项/图片/学生卷无答案
 ```
 
 - **D1 表图完整性**（需 `--清单`）：按清单还原题库题目，数出「应有几张表、几张图」，与卷面实际数比对——**少了即 ✗ 不合规（退出码 1 阻断）**。起因：表格曾被当语法 `re.sub` 静默删掉，200 道表格题的表格在 Word 卷上消失，而字号/行距/图片类检查全部照常通过——**版式合规 ≠ 内容没丢**，本项专门堵这个口子

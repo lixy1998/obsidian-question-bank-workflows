@@ -10,7 +10,7 @@ JSON 字段（必填）：学段/类别/卷名/序号/册别/单元/课/题型/�
 可选：小节/知识点（列表）、解析、题干、选项（列表，选择题用）
 id 自动生成：{来源首标签}-{序号}（来源为 list 取第一项；缺来源时回退卷名）
 
-输出：{vault}/{学段}-{类别}/{卷名}/{卷名}_{题型}/{序号}.md
+输出：{vault}/{学段}-{类别}/{卷名}/{卷名}_{题型}/{序号}.md（序号＝原卷面题号，两位补零）
 """
 import argparse
 import csv
@@ -45,11 +45,14 @@ def normalize(rec: dict) -> dict:
     for f in ("学段", "类别", "卷名", "序号"):
         if f not in rec or not str(rec[f]).strip():
             raise SchemaError(f"缺少路径字段 [{f}]，无法定位题目文件")
-    # 序号强制两位（01~25），与 fields.md 目录约定一致
+    # 序号＝原卷面题号（v1.29.0 起，此前写作「强制两位 01~25」）：
+    # 两位补零仅为排序与路径稳定；合卷题号跳跃（文综合 24~35、41~47）直接照抄，不重编、不补空号；
+    # ≥100 时 zfill 不截断，按实际位数落盘。规则见 references/fields.md「目录规则」。
     try:
         rec["序号"] = str(int(str(rec["序号"]))).zfill(2)
     except ValueError:
-        raise SchemaError(f"序号必须为数字：'{rec['序号']}'")
+        raise SchemaError(
+            f"序号须为原卷面题号（数字）：'{rec['序号']}'——合卷跳号可直接跳跃，但须为数字")
     for f in LIST_FIELDS:
         if f in rec:
             rec[f] = parse_list(rec[f])

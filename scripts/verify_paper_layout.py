@@ -375,12 +375,18 @@ def verify_volume(vol, rpt=None):
             if not (p.parent / "images" / m.group(1)).exists():
                 miss_img.append(f"{p.name}→{m.group(1)}")
     if seqs:
-        full = set(range(min(seqs), max(seqs) + 1))
-        missing = sorted(full - set(seqs))
-        rpt.add("B1", LEVEL_OK if not missing else LEVEL_BAD,
-                f"题号连续：{min(seqs)}~{max(seqs)} 共 {len(seqs)} 题"
-                + ("" if not missing else f"，缺号 {missing}"),
-                "" if not missing else "补齐缺号或核对文件命名")
+        # 序号＝原卷面题号（v1.29.0 起）：合卷/选做题跳号属正常（文综合历史 24~35、41~47），
+        # 故此处只校验「唯一」，缺号降为「需人工」确认，不再判不合规。
+        dup = sorted(n for n, c in Counter(seqs).items() if c > 1)
+        missing = sorted(set(range(min(seqs), max(seqs) + 1)) - set(seqs))
+        rpt.add("B1",
+                LEVEL_BAD if dup else (LEVEL_OK if not missing else LEVEL_MANUAL),
+                f"题号唯一：{min(seqs)}~{max(seqs)} 共 {len(seqs)} 题"
+                + (f"，重号 {dup}" if dup else "")
+                + (f"，跳号 {missing}" if missing else ""),
+                "核对重号文件（同号散在不同题型目录）" if dup
+                else ("跳号多见于合卷/选做题，确认原卷即如此即可，无需补齐空号"
+                      if missing else ""))
     rpt.add("B3", LEVEL_OK if not bad_opt else LEVEL_BAD,
             f"选择题选项数：{'全部 4 项' if not bad_opt else '异常 ' + '、'.join(bad_opt)}")
     rpt.add("C-img-miss", LEVEL_OK if not miss_img else LEVEL_BAD,
