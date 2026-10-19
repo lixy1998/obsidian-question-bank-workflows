@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-10-20 · 🧹 清理「`{卷名}_小论文`」目录兼容死代码 ＋ 修 `--卷` 带图导出 NameError（v1.29.1）
+
+**缘起**：`export_student_paper.py`、`linkify_citations.py` 仍留着「存量论述题目录为 `{卷名}_小论文`」的分支与注释。实测本库（`D:/Documents/TNote`）：**`*_小论文` 目录 0 个**、**`题型: 小论文` 0 条**（`*_论述题` 108 个），2026-09 的题型统一迁移早已完成——代码与注释都在误导（保留的分支永远命中 0 文件，注释却断言「存量仍为」）。
+
+**改动**
+
+1. `scripts/qb_schema.py`：删 `TYPE_LEGACY_DIRS` 常量及其注释；`TYPES` 上方注释补实测数据（0 目录 / 0 条）；`TYPE_ALIASES` **保留**（容错手工录入旧题型值，仍归一到论述题），注释改准。
+2. `scripts/export_student_paper.py`：`collect()` 题型过滤简化为 `f"_{qtype}" in p.parent.name`；import 行去掉 `TYPE_LEGACY_DIRS`。
+3. `scripts/linkify_citations.py`：`find_question()` 多命中优先序列表删 `"小论文"`；注释改为「已于 2026-09 全量改名，不再列该别名」。
+4. `workflow/04-angle-analysis.md`：题型子目录枚举删 `/小论文`（原文要求「以 `ls` 实查为准」，与实际目录名不符）。
+5. **附带修既有缺陷**：`export_student_paper.py` 调用 `_copy_img_refs()` 却**从未 import 它**（paperkit 拆分时漏项）→ `--卷` 模式**凡带图必崩**（`NameError: name '_copy_img_refs' is not defined`，在图片打包阶段、md 已写出之后，表现像「导出成功一半」）。补入 `from paperkit.images import … _copy_img_refs`。
+6. `tests/test_qb.py`：新增 `Test按卷导出_图片打包`——带图题 `--卷` 导出 md，断言退出码 0、stdout 有 `[图片]`、图片落到输出目录。
+
+**验证**：`tests/test_qb.py` **77 条全绿**；真实库实测 `export_student_paper.py --卷 2013河南中考 --题型 论述题 --输出 <临时>` → 修前 `NameError` 退出，修后 `[图片] 已打包 1 张`、`24_1.jpg` 正确落盘（同时验证题型过滤仍只命中 `_论述题` 目录）。
+
+**遗留提示**：该 `NameError` 说明「带图卷的 `--卷` 导出」长期零测试覆盖（原 docx 用例全用无图题）。凡新增与图片相关的分支，须配带图用例。
+
+---
+
 ## 2026-10-20 · 🔢 序号口径改为「原卷面题号」，不再限定 01~25 连续（v1.29.0）
 
 **缘起**：`references/fields.md`「目录规则」原写「序号：两位（01~25）」，与高考文综合卷实操冲突——文综历史是**选择 24~35、非选择 41~47（41~43 三选一）**，按 01~25 连续编号会与卷面脱节；后续还可能有其他合卷（文综/理综/联考合订、分卷合排），题号不一定连续。附带收益：`verify_against_source.py` 按**源题号**切块比对，序号与原卷题号一致后天然对齐，不再依赖「录入顺序＝卷面顺序」这一隐含前提。

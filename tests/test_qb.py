@@ -518,6 +518,22 @@ class Test卷结构_题号口径(TempVaultMixin, unittest.TestCase):
         self.assertIn("重号", r.stdout, "重号未报出：\n%s" % r.stdout[-800:])
 
 
+class Test按卷导出_图片打包(TempVaultMixin, unittest.TestCase):
+    """回归：--卷 出 md 时的图片打包（2026-10-20 实测 NameError：_copy_img_refs 未 import）。"""
+
+    def test_带图题导出_图片打包不崩且落盘(self):
+        p = self.make_question(序号="01",
+                               题干="观察下图，回答问题(　　)\n\n![](images/01_1.png)")
+        img_dir = p.parent / "images"
+        img_dir.mkdir(parents=True, exist_ok=True)
+        (img_dir / "01_1.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 64)
+        out = self.vault / "卷_学生版.md"
+        r = self.run_cli("export_student_paper.py", "--卷", "2026测试卷",
+                         "--输出", str(out), expect=0)
+        self.assertIn("[图片]", r.stdout, "未报告图片打包：\n%s" % r.stdout[-800:])
+        self.assertTrue((out.parent / "images" / "01_1.png").exists(), "图片未复制到输出目录")
+
+
 class TestDocxRender(TempVaultMixin, unittest.TestCase):
     """Word 卷渲染护栏（拆分 export_student_paper.py 前的安全网）。
 

@@ -53,11 +53,11 @@ from pathlib import Path
 
 from qb_bootstrap import bootstrap, require_vault
 from qb_schema import (is_question_file, as_list, split_frontmatter,
-                       stage_roots, strip_comments, TYPE_LEGACY_DIRS)
+                       stage_roots, strip_comments)
 from paperkit.paths import build_index, img_ns, norm_no, vol_name_of
 from paperkit.manifest import load_manifest, norm_items, resolve_items
 from paperkit.images import (MD_IMG_ANY_RE, WK_IMG_ANY_RE, _is_img_ref, _repl_std,
-                             bundle_images, iter_img_refs, rewrite_img)
+                             bundle_images, iter_img_refs, rewrite_img, _copy_img_refs)
 from paperkit.markup import (OPT_SPLIT, clean, extract_images, extract_tables,
                              is_tbl_slot, split_stem_opts)
 from paperkit.slots import (IMG_SLOT_RE, find_answer_slot, is_img_slot,
@@ -1134,9 +1134,9 @@ def parse_specs(vol_arg: str, only_arg: str) -> list:
 def collect(vol_dir: Path, qtype: str = None, only: list = None):
     files = [p for p in vol_dir.rglob("*.md") if is_question_file(p)]
     if qtype:
-        # 目录名兼容（2026-09 题型统一）：论述题的新目录为 {卷名}_论述题，存量仍为 {卷名}_小论文
-        names = [f"_{qtype}"] + [f"_{t}" for t in TYPE_LEGACY_DIRS.get(qtype, ())]
-        files = [p for p in files if any(n in p.parent.name for n in names)]
+        # 按题型过滤：目录名即 {卷名}_{题型}（2026-09 题型统一后「小论文」目录已全量改名为「论述题」，
+        # 2026-10-20 实测库内 0 个 *_小论文 目录，故不再保留旧目录别名）
+        files = [p for p in files if f"_{qtype}" in p.parent.name]
     if only:
         wanted = {norm_no(x) for x in only}
         files = [p for p in files if norm_no(p.stem) in wanted]

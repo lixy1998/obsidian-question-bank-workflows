@@ -199,9 +199,9 @@ def find_question(vol_dir: Path, seq: str):
     if not hits:
         return None, 0
     # 多命中：优先材料解析题 > 综合探究/论述 > 填空 > 选择题（报告主体为非选择题）
-    # 注意：匹配对象是目录名后缀，存量论述题目录名仍为 {卷名}_小论文，故保留该别名
+    # 匹配对象是目录名后缀 {卷名}_{题型}；「小论文」目录已于 2026-09 全量改名为「论述题」，不再列该别名
     def pref(p):
-        for i, k in enumerate(["材料解析题", "综合探究题", "论述题", "小论文", "填空题", "选择题"]):
+        for i, k in enumerate(["材料解析题", "综合探究题", "论述题", "填空题", "选择题"]):
             if k in p.parent.name:
                 return i
         return 99
