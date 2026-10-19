@@ -384,6 +384,16 @@ def append_body_images(body: str, refs: list) -> str:
     return body.rstrip() + "\n\n" + "\n\n".join(add) + "\n" if add else body
 
 
+def infer_alias_id(ap: Path) -> str:
+    """按「卷名-题号」推断题目 id（与 gen_problem 的默认 id 规则一致）。"""
+    return f"{ap.parent.parent.name}-{ap.stem}"
+
+
+def file_digest(p: Path) -> str:
+    """文件内容指纹（用于判定「归档目标已存在」是否为同一份内容）。"""
+    return sha1(p.read_bytes()).hexdigest()
+
+
 def unique_image_name(theme_dir: Path, theme_seq: str, src_name: str, taken: set = None) -> str:
     """为主题题生成不冲突的图片名 `{序号}_{n}{ext}`（避开磁盘已有 + 本批已分配）。"""
     ext = Path(src_name).suffix or ".jpg"
@@ -401,16 +411,29 @@ def cmd_merge(args) -> None:
     alias_paths = [Path(s.strip()) for s in (args.with_ or "").split(",") if s.strip()]
     if not theme_path.exists():
         sys.exit(f"[失败] 主题文件不存在：{theme_path}")
-    for ap in alias_paths:
-        if not ap.exists():
-            sys.exit(f"[失败] 别名文件不存在：{ap}")
     theme_fm_raw, theme_fm, theme_body = load_md(theme_path)
     theme_ids = [str(x) for x in as_list(theme_fm.get("id"))]
+    # 别名校验放在读入主题之后：文件已不在（在 .trash）但 id 已在主题 id 列表中，
+    # 属「已合并」稳态，跳过即可——否则 gen --force 重建后重跑 merge 会在这里误报失败。
+    archived_now = []
+    for ap in alias_paths:
+        if ap.exists():
+            continue
+        guess = infer_alias_id(ap)
+        if guess in theme_ids:
+            archived_now.append((ap, guess))
+        else:
+            sys.exit(f"[失败] 别名文件不存在：{ap}（按路径推断 id={guess}，"
+                     f"主题 id 列表中也无此项，无法判定为已合并）")
+    for ap, gid in archived_now:
+        print(f"[已合并] {ap.name}（id {gid} 已在主题 id 列表中，文件在归档区，跳过）")
+    alias_paths = [ap for ap in alias_paths if ap.exists()]
     seq = theme_path.stem
     new_ids, new_src, union_new, notes, img_refs = (list(theme_ids),
                                                     list(as_list(theme_fm.get("来源"))), {}, [], [])
     used_img_names = set()  # 批内已分配的新图名（避免同一批多条别名撞名）
     entries = []
+    idempotent = 0           # 别名 id 已在主题、本次只做归档清理的条数
     for ap in alias_paths:
         a_fm_raw, a_fm, a_body = load_md(ap)
         a_ids = [str(x) for x in as_list(a_fm.get("id"))]
@@ -424,47 +447,59 @@ def cmd_merge(args) -> None:
             print(f"[警告] {ap.name} 的权威序高于主题（{ak} < {tk}），"
                   f"建议改用该文件作主题（可用 --scan 的建议主题）")
         if a_primary in theme_ids:
-            print(f"[提示] 别名 id 已在主题 id 列表中：{a_primary}（幂等，跳过 YAML 变更）")
+            print(f"[提示] 别名 id 已在主题 id 列表中：{a_primary}"
+                  f"（幂等：只做归档清理，不重复追加 id/来源/解析）")
+            idempotent += 1
+            note, local_refs = "", []
         else:
             new_ids.append(a_primary)
-        for name, tag in source_pairs(a_fm):
-            if name and name not in new_src:
-                new_src += [name, tag]
-        for f in UNION_FIELDS:
-            tv, av = as_list(theme_fm.get(f)), as_list(a_fm.get(f))
-            add = [x for x in av if x not in tv]
-            if add:
-                union_new[f] = tv + add
-        note = diff_note(sig_of(theme_fm, theme_body), sig_of(a_fm, a_body))
-        # 图片：从别名正文取引用 → 复制到主题 images/ 并重命名
-        a_imgs = IMG_RE.findall(a_body)
-        local_refs = []
-        for name in a_imgs:
-            src = ap.parent / "images" / name
-            if not src.exists():
-                print(f"[警告] 别名图片缺失：{src}")
-                continue
-            new_name = unique_image_name(theme_path.parent, seq, name, used_img_names)
-            used_img_names.add(new_name)
-            local_refs.append((src, new_name))
-            img_refs.append(f"![](images/{new_name})")
-        notes.append(f"《{a_primary}》{note}")
+            for name, tag in source_pairs(a_fm):
+                if name and name not in new_src:
+                    new_src += [name, tag]
+            for f in UNION_FIELDS:
+                tv, av = as_list(theme_fm.get(f)), as_list(a_fm.get(f))
+                add = [x for x in av if x not in tv]
+                if add:
+                    union_new[f] = tv + add
+            note = diff_note(sig_of(theme_fm, theme_body), sig_of(a_fm, a_body))
+            # 图片：从别名正文取引用 → 复制到主题 images/ 并重命名（幂等时不重复取图）
+            local_refs = []
+            for name in IMG_RE.findall(a_body):
+                src = ap.parent / "images" / name
+                if not src.exists():
+                    print(f"[警告] 别名图片缺失：{src}")
+                    continue
+                new_name = unique_image_name(theme_path.parent, seq, name, used_img_names)
+                used_img_names.add(new_name)
+                local_refs.append((src, new_name))
+                img_refs.append(f"![](images/{new_name})")
+            notes.append(f"《{a_primary}》{note}")
         entries.append({"file": str(ap), "id": a_primary,
                         "archived_to": str(require_vault() / ARCHIVE_ROOT
                                            / ap.relative_to(require_vault())),
                         "images": [{"src": str(s), "name": nm} for s, nm in local_refs],
-                        "yaml_note": f"> 【一题多卷】另见《{a_primary}》（差异：{note}）"})
+                        "yaml_note": (f"> 【一题多卷】另见《{a_primary}》（差异：{note}）"
+                                      if note else "")})
 
     # 主题新 frontmatter
+    if not entries:
+        print("[无需合并] 别名题均已在归档区（合并态稳定），本次无动作。")
+        return
+    note_lines = [e["yaml_note"] for e in entries if e.get("yaml_note")]
+    yaml_changed = bool(note_lines or union_new
+                        or new_ids != theme_ids
+                        or new_src != as_list(theme_fm.get("来源")))
     fm_new = theme_fm_raw
-    fm_new = replace_field(fm_new, "id", new_ids)
-    if len(new_src) != len(as_list(theme_fm.get("来源"))):
-        fm_new = replace_field(fm_new, "来源", new_src)
-    for f, v in union_new.items():
-        fm_new = replace_field(fm_new, f, v)
-    old_jx = str(theme_fm.get("解析") or "").strip()
-    new_jx = "\n".join(([old_jx] if old_jx else []) + [e["yaml_note"] for e in entries])
-    fm_new = replace_field(fm_new, "解析", new_jx)
+    if yaml_changed:
+        fm_new = replace_field(fm_new, "id", new_ids)
+        if len(new_src) != len(as_list(theme_fm.get("来源"))):
+            fm_new = replace_field(fm_new, "来源", new_src)
+        for f, v in union_new.items():
+            fm_new = replace_field(fm_new, f, v)
+        if note_lines:
+            old_jx = str(theme_fm.get("解析") or "").strip()
+            fm_new = replace_field(fm_new, "解析",
+                                   "\n".join(([old_jx] if old_jx else []) + note_lines))
 
     print(f"═══ 合并预览（{'执行' if args.apply else 'dry-run，未写盘'}）═══")
     print(f"主题：{theme_path}")
@@ -472,9 +507,12 @@ def cmd_merge(args) -> None:
     print(f"  来源：{as_list(theme_fm.get('来源'))} → {new_src}")
     for f, v in union_new.items():
         print(f"  {f}：追加 {[x for x in v if x not in as_list(theme_fm.get(f))]}")
-    print(f"  解析：追加 {len(entries)} 行「一题多卷」备注：")
-    for e in entries:
-        print(f"    {e['yaml_note']}")
+    if note_lines:
+        print(f"  解析：追加 {len(note_lines)} 行「一题多卷」备注：")
+        for ln in note_lines:
+            print(f"    {ln}")
+    else:
+        print("  解析：（无新增；别名均为已合并项）")
     print(f"  正文：追加图片引用 {img_refs if img_refs else '（无）'}")
     for e in entries:
         print(f"别名：{e['file']}")
@@ -483,15 +521,34 @@ def cmd_merge(args) -> None:
         print("\n[dry-run] 加 --apply 执行；执行前请确认权威序与差异说明无误。")
         return
 
-    # 写主题 + 立即自检 frontmatter（防静默破坏；此时尚未归档，修正后可直接重试）
-    theme_path.write_text(f"---\n{fm_new}\n---\n\n"
-                          f"{append_body_images(theme_body, img_refs).strip()}\n", encoding="utf-8")
-    chk_fm, _, chk_err = split_frontmatter(theme_path.read_text(encoding="utf-8"))
-    if chk_err or not chk_fm.get("id"):
-        print(f"❌ 主题 frontmatter 校验失败：{chk_err or '缺少 id 字段'}\n"
-              f"   主题 YAML 已改动、别名尚未归档；请手工修正该文件后重试", file=sys.stderr)
-        sys.exit(1)
-    print(f"[自检] 主题 frontmatter 解析正常：id={chk_fm.get('id')}")
+    # 归档目标预检（赶在写主题之前）：目标已在归档区且内容不同 → 拒绝覆盖
+    # .trash 是还原原卷的唯一留痕，静默覆盖会让留痕失真。
+    conflicts = []
+    for e in entries:
+        src_p, dst_p = Path(e["file"]), Path(e["archived_to"])
+        if not dst_p.exists() or src_p.stat().st_size == 0:
+            continue          # 空壳（0 字节）按幂等清理删源，不当冲突拦下
+        if file_digest(dst_p) != file_digest(src_p):
+            conflicts.append((src_p, dst_p))
+    if conflicts:
+        for src_p, dst_p in conflicts:
+            print(f"[冲突] 目标：{dst_p}\n        卷内：{src_p}", file=sys.stderr)
+        sys.exit("[失败] 归档目标已存在且内容不同，拒绝覆盖；"
+                 "请人工核对后删除其一（或先 --rollback）再重试")
+
+    if yaml_changed:
+        # 写主题 + 立即自检 frontmatter（防静默破坏；此时尚未归档，修正后可直接重试）
+        theme_path.write_text(f"---\n{fm_new}\n---\n\n"
+                              f"{append_body_images(theme_body, img_refs).strip()}\n",
+                              encoding="utf-8")
+        chk_fm, _, chk_err = split_frontmatter(theme_path.read_text(encoding="utf-8"))
+        if chk_err or not chk_fm.get("id"):
+            print(f"❌ 主题 frontmatter 校验失败：{chk_err or '缺少 id 字段'}\n"
+                  f"   主题 YAML 已改动、别名尚未归档；请手工修正该文件后重试", file=sys.stderr)
+            sys.exit(1)
+        print(f"[自检] 主题 frontmatter 解析正常：id={chk_fm.get('id')}")
+    else:
+        print("[幂等] 主题 YAML 无变更，跳过写盘")
     # 复制图片
     for e in entries:
         for it in e["images"]:
@@ -503,20 +560,33 @@ def cmd_merge(args) -> None:
     today = date.today().isoformat()
     log_path = require_vault() / DEDUPE_LOG_DIR / f"{today}.json"
     log = json.loads(log_path.read_text(encoding="utf-8")) if log_path.exists() else {"date": today, "entries": []}
+    real_archived = 0
     for e in entries:
         src_p = Path(e["file"])
         dst_p = Path(e["archived_to"])
-        dst_p.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(src_p), str(dst_p))
-        # 同题号前缀的图片一并复制到归档目录（保留原图，供还原原卷）
-        img_dir = src_p.parent / "images"
-        if img_dir.exists():
-            arch_img = dst_p.parent / "images"
-            for f in img_dir.glob(f"{src_p.stem}_*"):
-                arch_img.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(f, arch_img / f.name)
-        print(f"[归档] {src_p.name} → {dst_p}")
-        # 卷内清单
+        size = src_p.stat().st_size
+        if dst_p.exists():
+            # 目标已在归档区且内容一致（幂等：gen --force 重跑后重跑 merge 的常见形态）
+            # → 只删卷内重建件，不重复 move（避免 Windows 上 move 到已存在路径的异常态）
+            src_p.unlink()
+            e["idempotent"] = True
+            print(f"[幂等] 归档区已有同内容文件，删除卷内重建件：{src_p.name}")
+        else:
+            dst_p.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src_p), str(dst_p))
+            if not dst_p.exists() or dst_p.stat().st_size != size:
+                got = f"{dst_p.stat().st_size} 字节" if dst_p.exists() else "文件不存在"
+                sys.exit(f"[失败] 归档校验不通过：{dst_p}（期望 {size} 字节，实得 {got}）")
+            real_archived += 1
+            print(f"[归档] {src_p.name} → {dst_p}")
+            # 同题号前缀的图片一并复制到归档目录（保留原图，供还原原卷）
+            img_dir = src_p.parent / "images"
+            if img_dir.exists():
+                arch_img = dst_p.parent / "images"
+                for f in img_dir.glob(f"{src_p.stem}_*"):
+                    arch_img.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(f, arch_img / f.name)
+        # 卷内清单（已记过该题号则不再追加，防重复执行堆行）
         vol_dir = src_p.parent.parent
         ck = vol_dir / "_重复题清单.md"
         line = f"| {src_p.stem} | {e['id']} | {new_ids[0]} | {today} |"
@@ -528,16 +598,33 @@ def cmd_merge(args) -> None:
                           f"> 题库不重复存题；需要还原本卷时按「主题 id」取题。\n\n"
                           f"| 本卷题号 | 本卷 id | 主题 id | 合并日期 |\n|---|---|---|---|\n",
                           encoding="utf-8")
-        with ck.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        existed_text = ck.read_text(encoding="utf-8")
+        if f"| {src_p.stem} |" not in existed_text:
+            with ck.open("a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            e["checklist_line"] = line
         e["checklist_file"] = str(ck)
-        e["checklist_line"] = line
-    log["entries"].append({"theme_file": str(theme_path), "theme_id": theme_ids[0] if theme_ids else "",
-                           "theme_frontmatter_before": theme_fm_raw,
-                           "body_appended_refs": img_refs, "aliases": entries})
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n[日志] {log_path}（--rollback 可回滚）")
+    # 结束自检：卷内原路径不应残留；0 字节空壳直接清掉（成因不赌，按结果兜底）
+    for e in entries:
+        leftover = Path(e["file"])
+        if leftover.exists():
+            sz = leftover.stat().st_size
+            if sz == 0:
+                leftover.unlink()
+                print(f"[清理] 卷内 0 字节空壳：{leftover}")
+            else:
+                print(f"[警告] 卷内仍有残留（{sz} 字节，未自动删除）：{leftover}")
+    if yaml_changed or real_archived:
+        log["entries"].append({"theme_file": str(theme_path), "theme_id": theme_ids[0] if theme_ids else "",
+                               "theme_frontmatter_before": theme_fm_raw,
+                               "body_appended_refs": img_refs, "aliases": entries})
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\n[日志] {log_path}（--rollback 可回滚）")
+    else:
+        print("\n[日志] 本次无实质变更（全为幂等清理），不追加日志")
+    if idempotent:
+        print(f"[幂等] {idempotent} 条别名的 id 已在主题列表中，YAML 未重复追加")
     print("✅ 合并完成；请重跑 `python scan_questions.py` 复核")
 
 

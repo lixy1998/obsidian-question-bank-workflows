@@ -2,7 +2,7 @@
 name: Obsidian历史题库搭建与组卷
 description: Obsidian 历史题库建设——「每道题一个文件」：正文只放题干/选项/材料，答案与解析藏 YAML frontmatter；并含 `3-试题研究/` 笔记的属性规范与模板（A 档单题/单卷研究、B 档课·单元·专题·册别报告）。
 触发词：历史题库、题库搭建、题库维护、录入题库、录入题目/试题、录入到题库、出题、组卷、组卷排版、出一套卷子、BOOK_INDEX、课名词表、题库质量检查、查重、题目重复、一题多卷、去重、试卷排版、成卷版式、图文混排、分析某课考查方向、某课考什么、归纳X课考点、结合题库看重点、分析某单元考查方向、某单元考什么、单元命题规律、专题分析、跨单元专题、按考察角度出练习、角度分类练习、考察角度、某册期末考什么、考试范围分析、哪些课是重点、复习优先级、图片不显示、图片打不开、tiff 转 jpg、图片格式巡检、出卷丢图、卷子里图片没了、wikilink 粘贴图、图片引用规范、试题研究笔记、笔记属性、试题报告模板、链接断了、断链、链接跳转不了、引用失效、给报告加链接、正文出处加链接、引用题目。
-version: 1.27.1
+version: 1.28.0
 license: CC BY-NC-SA 4.0
 author: 教历史的史知行
 ---
@@ -64,9 +64,9 @@ author: 教历史的史知行
 | `qb_schema.py` | 公共模块：受控词表（BOOK_INDEX 课名+单元层级+学史方法+高中选修专题）、路径规则、字段校验、`split_frontmatter`、权威序、`is_question_file`、惰性 `VAULT` | 写任何脚本/改字段规则前先看它；报「课名不在词表」「册别非法」时改的是它的词表解析 |
 | `qb_bootstrap.py` | 启动引导：依赖预检（缺包→中文提示，退出码 3）、管道输出强制 UTF-8、`resolve_vault()` / `require_vault()` 唯一 vault 定位入口（--vault > `TNOTE_VAULT` > skill_config.json） | 脚本报「缺少 Python 依赖」或「未配置题库库」时，看它的提示；**新增脚本按骨架写**：入口首行 `bootstrap()` → 自行校验参数 → `require_vault(args.vault)` 取库路径。⚠ 两条硬规矩：① **取库路径必须用 `require_vault()`**，别写 `bootstrap(vault=…)`（默认 `want_vault=False` 返回 `None` → `Path(None)` 报错）；② **`require_vault` 必须排在参数校验之后**，否则未配置 vault 的环境下「字段不在白名单」这类参数报错会先被 `exit=2` 盖掉 |
 | `setup.py` | 首次配置引导：写入 vault + 建库（六类别目录 + 复制模板） | 首次使用、或换机器后脚本报「未配置题库库」（见 `workflow/00-init.md`） |
-| `gen_problem.py` | JSON → 单题 md（支持 `--csv` / `--dry-run` / `--force`） | 已备好录入 JSON，要生成单题 md 时（录入流程第 2 步） |
-| `scan_questions.py` | 全库校验（必填/枚举/课名/正文/多值 id/定位字段对齐/**frontmatter YAML 失效单列**）；`--dump` 输出全量元数据供检索；`--json` 供流水线（退出码与文本模式一致阻断） | 每次录入/合并/改字段后；报「⚠ 问题」即须修，「ℹ 提示」须逐条补齐 |
-| `dedupe_questions.py` | 查重与一题多卷合并：`--scan` / `--check` / `--merge` / `--list-merged` / `--rollback` | 入库前查重（`--check`）、判定同题后合并（`--merge`）、合并后翻账（`--list-merged`/`--rollback`） |
+| `gen_problem.py` | JSON → 单题 md（支持 `--csv` / `--dry-run` / `--force`）。**`--force` 遇「一题多卷」合并态默认保留 `id`/`来源`/`解析`**（只刷新其余字段与正文），要连合并态一起丢弃须显式 `--allow-merged` | 已备好录入 JSON，要生成单题 md 时（录入流程第 2 步）。⚠ **改过题后重跑 `--force` 是安全的**：不会把已归档的别名 id 抹掉（2026-10-19 前后实测：不保留则须重跑 merge，二跑还会在卷内留 0 字节空壳） |
+| `scan_questions.py` | 全库校验（必填/枚举/课名/正文/多值 id/定位字段对齐/**frontmatter YAML 失效单列**/**空壳文件（<100 字节）**）；`--dump` 输出全量元数据供检索；`--json` 供流水线（退出码与文本模式一致阻断） | 每次录入/合并/改字段后；报「⚠ 问题」即须修，「ℹ 提示」须逐条补齐 |
+| `dedupe_questions.py` | 查重与一题多卷合并：`--scan` / `--check` / `--merge` / `--list-merged` / `--rollback`。**`--merge` 幂等**：别名已归档（文件不在 .trash 而 id 已在主题）自动跳过；归档目标已存在且内容不同则拒绝覆盖；重复执行不重复追加「解析」备注与日志 | 入库前查重（`--check`）、判定同题后合并（`--merge`）、合并后翻账（`--list-merged`/`--rollback`） |
 | `export_student_paper.py` | 组卷导出（清单驱动）：`--清单` 一条命令出 md 卷 / Word 卷（`--docx`，默认同出答题卡）/ `--模式 命题说明` / `--均衡选项` / `--体检`；兼容旧用法 `--卷` + `--only`。**渲染与加工逻辑已拆入 `scripts/paperkit/` 包**（本文件保留 docx 渲染、答题卡、卷级导出与 CLI） | 要出一套卷子（学生卷/命题说明/答题卡）、做卷面体检或答案分布均衡时 |
 | `backtrace_paper.py` | 从成品卷（docx/md/pdf 文字版）反查题库 id、还原组卷清单，输出可直接喂 `export_student_paper.py` | 手上只有成品卷、想还原它的组卷清单（补录清单、复用旧卷）时 |
 | `verify_paper_layout.py` | 试卷版式校验：`--docx` 查字号/行距/字体/页面尺寸/图片/答案分页；`--卷` 查结构层 | Word 卷出好后定版前（有「✗ 不合规」不得交付）；也可只查题库卷结构 |

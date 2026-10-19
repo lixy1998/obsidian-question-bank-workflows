@@ -81,6 +81,31 @@ ZHENG_RE = re.compile(r"^[ABC][1-3]-")
 ZHENG_SET = {"A1-识记", "A2-说明", "A3-概括", "B1-比较", "B2-分析", "B3-评价",
              "C1-建构", "C2-考证", "C3-探究"}
 
+# md 表格结构检查用（2026-10-19）：缺分隔行的表格 Obsidian 不渲染，塌成裸竖线文本
+TBL_ROW_RE = re.compile(r"^\s*\|")
+SEP_ROW_RE = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
+
+
+def table_missing_sep(body: str):
+    """找「连续 | 行块的第 2 行不是分隔行」——表格缺 `|---|`，Obsidian 不渲染。
+
+    返回起始行号（1 基）；无问题返回 None。2026-10-19 加：实测
+    `| 表头 | … |` 后直接接数据行 → 整块塌成裸竖线文本（洛阳市2024-2025学年8上期末 第7题）。
+    """
+    lines = body.split("\n")
+    i, n = 0, len(lines)
+    while i < n:
+        if not TBL_ROW_RE.match(lines[i]):
+            i += 1
+            continue
+        s = i
+        while i < n and TBL_ROW_RE.match(lines[i]):
+            i += 1
+        blk = lines[s:i]
+        if len(blk) >= 2 and not SEP_ROW_RE.match(blk[1]):
+            return s + 1
+    return None
+
 
 def _lev_le1(a: str, b: str) -> bool:
     """两串编辑距离是否 ≤1（中文短值场景，够用即可）。相同串返回 False。"""
@@ -193,6 +218,13 @@ def scan(roots, only_vol: str = None):
             if only_vol and only_vol not in p.parts:
                 continue  # --卷 过滤：只保留路径中含该卷名的文件
             rel = p.relative_to(require_vault())
+            # 空壳文件（2026-10-19 加）：merge/gen 异常后可能残留 0 字节或极小的题文件，
+            # 它们会让必填/id 校验刷出一串同源噪音，故单列一条后跳过本文件。
+            size = p.stat().st_size
+            if size < 100:
+                problems.append(f"[空壳文件 {size} 字节] {rel}"
+                                f"（疑似 merge/gen 残留；确认后删除或从 .trash／原卷还原）")
+                continue
             fm, body, err = split_frontmatter(p.read_text(encoding="utf-8"))
             if err:
                 # frontmatter 整块失效：单列成节报出（带「第 N 行」定位），并**跳过本文件其余校验**——
@@ -299,6 +331,11 @@ def scan(roots, only_vol: str = None):
             # 正文非空
             if not body.strip():
                 problems.append(f"[正文为空] {rel}")
+            # 表格缺分隔行（2026-10-19 加）：`| 表头 |` 后直接数据行 → 表格不渲染（塌成裸竖线）
+            _tbl = table_missing_sep(body)
+            if _tbl:
+                problems.append(f"[表格缺分隔行] {rel}（第 {_tbl} 行起的表格无 `|---|` 分隔行，"
+                                f"Obsidian 不渲染、塌成裸竖线文本；补一行分隔行即可）")
             # 统计（册别/来源/核心素养/关键能力均支持多值标签）
             stats["总数"] += 1
             for b in as_list(fm.get("册别")):

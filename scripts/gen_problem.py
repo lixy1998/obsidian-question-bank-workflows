@@ -19,9 +19,9 @@ import sys
 from pathlib import Path
 
 from qb_bootstrap import bootstrap
-from qb_schema import (SchemaError, build_body, copy_images, dump_yaml,
-                       question_dir, question_path, validate_lesson,
-                       validate_record)
+from qb_schema import (SchemaError, as_list, build_body, copy_images,
+                       dump_yaml, question_dir, question_path,
+                       split_frontmatter, validate_lesson, validate_record)
 
 LIST_FIELDS = ["id", "册别", "单元", "课", "小节", "知识点", "核心素养",
                "素养层次水平", "关键能力", "选项", "来源"]
@@ -67,7 +67,41 @@ def render_md(rec: dict) -> str:
     return f"{yaml_block}\n\n{body}\n"
 
 
-def write_one(rec: dict, dry_run: bool = False, force: bool = False) -> Path:
+# 重跑 --force 时须原样保留的字段：id（别名 id 列表）／来源（含别名卷名，成对）／解析（一题多卷备注）
+PROTECT_MERGED_FIELDS = ("id", "来源", "解析")
+
+
+def merged_state(path: Path) -> tuple:
+    """既有题文件处于「一题多卷」合并态时返回 (fm, ids)，否则 (None, [])。
+
+    判据：id 字段是多值列表（首项为主卷 id，其后为别名卷 id）。
+    """
+    if not path.exists():
+        return None, []
+    try:
+        fm, _body, err = split_frontmatter(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None, []
+    if err or not fm:
+        return None, []
+    ids = as_list(fm.get("id"))
+    return (fm, ids) if len(ids) > 1 else (None, [])
+
+
+def keep_merged(rec: dict, old_fm: dict, old_ids: list, path: Path) -> dict:
+    """把既有文件的 id／来源／解析 回填进新记录（覆盖合并态前的保护动作）。"""
+    for f in PROTECT_MERGED_FIELDS:
+        v = old_fm.get(f)
+        if v is None or v == "" or v == []:
+            continue
+        rec[f] = as_list(v) if f in ("id", "来源") else v
+    print(f"[合并态保护] {path.name}：保留 {'/'.join(PROTECT_MERGED_FIELDS)}"
+          f"（id={old_ids}）；仅刷新其余字段与正文。要整体重建加 --allow-merged")
+    return rec
+
+
+def write_one(rec: dict, dry_run: bool = False, force: bool = False,
+              allow_merged: bool = False) -> Path:
     rec = normalize(rec)
     validate_record(rec)
     try:
@@ -76,15 +110,25 @@ def write_one(rec: dict, dry_run: bool = False, force: bool = False) -> Path:
         print(f"[警告] {e}")
     path = question_path(rec)
     if dry_run:
-        print(f"[dry-run] {path}")
+        old_fm, old_ids = merged_state(path)
+        tag = "（既有文件处于合并态，将保留 id／来源／解析）" if old_ids else ""
+        print(f"[dry-run] {path}{tag}")
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
+    old_fm, old_ids = merged_state(path)
     if path.exists() and not force:
-        print(f"[跳过] 已存在：{path}（--force 可覆盖）")
+        print(f"[跳过] 已存在：{path}"
+              f"{'（合并态，含别名 id）' if old_ids else '（--force 可覆盖）'}")
         return path
+    if old_ids and not allow_merged:
+        rec = keep_merged(rec, old_fm, old_ids, path)
+    elif old_ids and allow_merged:
+        print(f"[警告] --allow-merged：{path.name} 的合并态将被丢弃"
+              f"（{old_ids} → {as_list(rec.get('id'))}），需重跑 dedupe_questions.py --merge")
+    existed = path.exists()
     path.write_text(render_md(rec), encoding="utf-8")
     copy_images(rec, path.parent)
-    print(f"[{'覆盖' if path.exists() and force else '生成'}] {path}")
+    print(f"[{'覆盖' if existed else '生成'}] {path}")
     return path
 
 
@@ -95,6 +139,8 @@ def main():
     ap.add_argument("--csv", action="store_true", help="输入为 CSV")
     ap.add_argument("--dry-run", action="store_true", help="只打印将生成的路径，不写文件")
     ap.add_argument("--force", action="store_true", help="覆盖已存在的题目文件")
+    ap.add_argument("--allow-merged", action="store_true",
+                    help="--force 时连同「一题多卷」合并态一并丢弃（默认保留 id/来源/解析）")
     args = ap.parse_args()
 
     if args.csv:
@@ -107,7 +153,8 @@ def main():
     ok = fail = 0
     for rec in records:
         try:
-            write_one(rec, dry_run=args.dry_run, force=args.force)
+            write_one(rec, dry_run=args.dry_run, force=args.force,
+                      allow_merged=args.allow_merged)
             ok += 1
         except SchemaError as e:
             print(f"[失败] {e}", file=sys.stderr)
