@@ -16,9 +16,11 @@
   --list-merged             列出已合并题（id 多值）
   --rollback <日志.json> [--apply]
                             按日志回滚（还原归档文件 + 恢复主题 frontmatter）
+  --check-authority         全库体检：已合并题中「别名比主题更权威」的倒挂（只读）
 
 合并规则（用户 2026-09-13 裁定）：
   · 主题 = 权威序最高者：中/高考真题 > 中/高考模拟 > 阶段测试；同级按**年份最早**者
+  · **权威序倒挂 = 错误合并，脚本硬阻断**（2026-10-22 定；`--allow-inferior` 才放行）
   · 主题 id 列表追加别名 id（幂等）；来源**成对追加**（卷名, 类型）
   · 册别/单元/课/小节/知识点/核心素养/素养层次水平/关键能力 取并集（主题在前）
   · 年份/考区/难度/分值 保留主题值，差异写入 YAML「解析」备注（正文保持纯净，学生卷安全）
@@ -339,6 +341,90 @@ def cmd_check(args) -> None:
     print(f"\n预检完成：{len(records)} 题，{hit_total} 题命中疑似重复")
 
 
+# ---------------- 权威序体检 ----------------
+
+def iter_archived() -> list:
+    """读取归档区（.trash）下的别名题 → [(path, fm), ...]。
+
+    `stage_roots()` 天然不含 `.trash`，故体检须单独遍历；
+    `is_question_file()` 对归档件仍返回 True（其保持题库内相对路径）。
+    """
+    root = require_vault() / ARCHIVE_ROOT
+    if not root.exists():
+        return []
+    out = []
+    for p in sorted(root.rglob("*.md")):
+        if not is_question_file(p):
+            continue
+        fm, _body, err = split_frontmatter(p.read_text(encoding="utf-8"))
+        if err:
+            print(f"[警告] 归档件 frontmatter 异常，跳过体检：{p}（{err}）")
+            continue
+        out.append((p, fm))
+    return out
+
+
+def find_inverted() -> list:
+    """全库体检：主卷权威序**低于**其某个别名（别名更权威）→ 倒挂清单（只读）。
+
+    判据用 `authority_key`（真题 > 模拟 > 阶段测试；同级年份早者优先）。
+    别名 id 在归档区找不到对应文件时跳过（无法判定其类别，不臆测）。
+    """
+    arch = {}
+    for p, fm in iter_archived():
+        for i in as_list(fm.get("id")):
+            arch.setdefault(str(i), (p, fm))
+    rows = []
+    for root in stage_roots():
+        for p in sorted(root.rglob("*.md")):
+            if not is_question_file(p):
+                continue
+            fm, _body, err = split_frontmatter(p.read_text(encoding="utf-8"))
+            if err:
+                continue
+            ids = [str(x) for x in as_list(fm.get("id"))]
+            if len(ids) < 2:
+                continue
+            tk = authority_key({**fm, "序号": p.stem}, p)
+            for a in ids[1:]:
+                hit = arch.get(a)
+                if not hit:
+                    continue
+                ap, afm = hit
+                ak = authority_key({**afm, "序号": ap.stem}, ap)
+                if ak < tk:
+                    rows.append({"theme": p, "theme_key": tk, "alias_id": a,
+                                 "alias_path": ap, "alias_key": ak})
+    return rows
+
+
+def cmd_check_authority(args) -> None:
+    rows = find_inverted()
+    if args.json:
+        print(json.dumps([{
+            "主题文件": str(r["theme"].relative_to(require_vault())),
+            "主题权威序": list(r["theme_key"]),
+            "别名": r["alias_id"],
+            "别名文件（归档）": str(r["alias_path"].relative_to(require_vault())),
+            "别名权威序": list(r["alias_key"]),
+        } for r in rows], ensure_ascii=False, indent=2))
+        return
+    if not rows:
+        print("✅ 权威序体检通过：全库无「别名比主卷更权威」的倒挂合并")
+        return
+    print(f"⚠ 权威序倒挂 {len(rows)} 处 —— 违反「真题 > 模拟 > 阶段测试，同级年份早者优先」\n")
+    for r in rows:
+        print(f"· 主卷 {r['theme_key']}  {r['theme'].relative_to(require_vault())}")
+        print(f"  别名 {r['alias_key']}  {r['alias_id']}"
+              f"（归档于 {r['alias_path'].relative_to(require_vault())}）")
+        print(f"  → 应以别名为主卷。修正步骤：① 把主卷 frontmatter 还原为合并前快照"
+              f"（见 .dedupe 日志 theme_frontmatter_before）；② 还原归档件到原位；")
+        print(f"     ③ python dedupe_questions.py --merge \"{r['alias_path']}\" "
+              f"--with \"{r['theme']}\" --apply")
+    print("\n[提示] 倒挂多为「合并时手工指定了错误主题」所致；"
+          "`--merge` 现已在写盘前硬阻断此类合并。")
+
+
 # ---------------- 合并 ----------------
 
 def render_field(key: str, value) -> list:
@@ -434,6 +520,7 @@ def cmd_merge(args) -> None:
     used_img_names = set()  # 批内已分配的新图名（避免同一批多条别名撞名）
     entries = []
     idempotent = 0           # 别名 id 已在主题、本次只做归档清理的条数
+    inverted = []            # 权威序倒挂：别名比主题更权威（硬阻断，除非 --allow-inferior）
     for ap in alias_paths:
         a_fm_raw, a_fm, a_body = load_md(ap)
         a_ids = [str(x) for x in as_list(a_fm.get("id"))]
@@ -443,9 +530,9 @@ def cmd_merge(args) -> None:
         # 权威序校验：主题应不劣于别名
         tk = authority_key({**theme_fm, "序号": seq}, theme_path)
         ak = authority_key({**a_fm, "序号": ap.stem}, ap)
-        if ak < tk:
-            print(f"[警告] {ap.name} 的权威序高于主题（{ak} < {tk}），"
-                  f"建议改用该文件作主题（可用 --scan 的建议主题）")
+        if ak < tk and a_primary not in theme_ids:
+            # 仅对「要真正追加」的别名阻断；幂等清理项不改变合并方向，交给 --check-authority 报
+            inverted.append((ap, a_primary, ak, tk))
         if a_primary in theme_ids:
             print(f"[提示] 别名 id 已在主题 id 列表中：{a_primary}"
                   f"（幂等：只做归档清理，不重复追加 id/来源/解析）")
@@ -480,6 +567,23 @@ def cmd_merge(args) -> None:
                         "images": [{"src": str(s), "name": nm} for s, nm in local_refs],
                         "yaml_note": (f"> 【一题多卷】另见《{a_primary}》（差异：{note}）"
                                       if note else "")})
+
+    # 权威序倒挂 → 写盘前硬阻断（dry-run 同样拒绝，避免误以为「预览通过」）
+    if inverted:
+        print("\n[权威序倒挂] 以下别名比主题更权威 —— 违反"
+              "「真题 > 模拟 > 阶段测试，同级年份早者优先」：")
+        for ap, aid, ak, tk in inverted:
+            print(f"  · 别名 {aid}  {ak} ＜ 主题 {tk}")
+            print(f"    {ap}")
+        best = inverted[0][0]
+        print("\n[正确做法] 应改用更权威者作主题"
+              "（先把现主题 frontmatter 还原为合并前快照，再执行）：")
+        print(f'  python dedupe_questions.py --merge "{best}" '
+              f'--with "{theme_path}" --apply')
+        if not args.allow_inferior:
+            sys.exit("[失败] 已拒绝执行：合并方向与权威序相反。"
+                     "确属特例请加 --allow-inferior 放行")
+        print("[放行] 已按 --allow-inferior 继续；本次倒挂将写入日志")
 
     # 主题新 frontmatter
     if not entries:
@@ -617,7 +721,10 @@ def cmd_merge(args) -> None:
     if yaml_changed or real_archived:
         log["entries"].append({"theme_file": str(theme_path), "theme_id": theme_ids[0] if theme_ids else "",
                                "theme_frontmatter_before": theme_fm_raw,
-                               "body_appended_refs": img_refs, "aliases": entries})
+                               "body_appended_refs": img_refs, "aliases": entries,
+                               "authority_inverted": [
+                                   {"alias_id": aid, "alias_key": list(ak), "theme_key": list(tk)}
+                                   for _, aid, ak, tk in inverted]})
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\n[日志] {log_path}（--rollback 可回滚）")
@@ -715,6 +822,10 @@ def main():
     ap.add_argument("--with", dest="with_", help="别名题文件（逗号分隔）")
     ap.add_argument("--list-merged", action="store_true", help="列出一题多卷题")
     ap.add_argument("--rollback", help="按日志 JSON 回滚")
+    ap.add_argument("--check-authority", action="store_true",
+                    help="全库体检：已合并题中别名比主题更权威的倒挂")
+    ap.add_argument("--allow-inferior", action="store_true",
+                    help="放行权威序倒挂的合并（默认拒绝）")
     ap.add_argument("--apply", action="store_true", help="真正写盘（默认 dry-run）")
     ap.add_argument("--out", help="查重清单输出路径（md）")
     ap.add_argument("--json", action="store_true", help="JSON 输出")
@@ -735,6 +846,8 @@ def main():
         cmd_list_merged(args)
     elif args.rollback:
         cmd_rollback(args)
+    elif args.check_authority:
+        cmd_check_authority(args)
     else:
         ap.print_help()
 

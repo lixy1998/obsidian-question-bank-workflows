@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-10-22 · ⚖️ 权威序倒挂改为硬阻断 ＋ 新增 `--check-authority`（v1.30.0）
+
+**缘起**（实案）：`2023全国新课标卷-34`（高中·高考真题，2023）被当作**别名**并入 `2026洛阳涧西区一模-18`（初中·中考模拟，2026），真题文件被归档进 `.trash`。根因在 `cmd_merge`：权威序倒挂（`ak < tk`）时**只 print 一句「建议改用该文件作主题」的警告，随后照常写盘归档**——只要 `--merge` 传错主题，违规合并即可静默落地。`--scan` 的建议主题本身排序正确，问题在于脚本没有把「真题 > 模拟 > 阶段测试」当硬约束。
+
+**改动**
+
+1. `scripts/dedupe_questions.py`：
+   - `cmd_merge`：倒挂别名先收集进 `inverted`（只收真正要追加的非幂等项；幂等清理项不改变方向，不拦）；在 **写盘前**（造 frontmatter 之前）硬阻断 `sys.exit`，同时打印倒挂明细与「正确方向」的可执行命令。新增 `--allow-inferior` 显式放行，放行后倒挂记入日志 `entries[].authority_inverted`。
+   - 新增 `--check-authority` 子命令（只读）：扫 `.trash` 归档件建 `id → (path, fm)` 索引，逐题比 `authority_key(主题)` 与 `authority_key(别名)`，列出「别名比主卷更权威」的既成倒挂，并给出四步修正指引。
+   - 新增 `iter_archived()` / `find_inverted()`；`stage_roots()` 不含 `.trash`，故体检单独遍历。
+2. `references/fields.md`：「权威序」节补「倒挂 = 错误合并」铁律、实案与修正次序；命令区补 `--check-authority`。
+3. `SKILL.md`：`dedupe_questions.py` 行补 `--check-authority` 与硬阻断说明；版本 1.29.1 → 1.30.0。
+4. `tests/test_qb.py`：新增 `TestDedupe权威序` 3 条——倒挂方向被拒（exit 1、别名未移动）、正方向合并成功（真题 id 双值在前、别名归档）、体检能报出既成倒挂。
+
+**⚠ 实现坑（已踩）**：`load_md()` 返回 `(fm_raw, fm, body)`，第三项是**正文而非 err**。体检初版写 `_, fm, err = load_md(p)` 后 `if err: continue` → 正文非空的题全被跳过，体检恒报「通过」（假阴性，而临时脚本同时报出 1 处才暴露）。体检/索引类函数一律用 `split_frontmatter()` 显式取 `(fm, body, err)`。
+
+**数据修正（同日，真实库 `D:/Documents/TNote`）**：
+- 备份 `TNote/.fieldbackup/2026-10-22-dedupe-fix/`（18.md、34.md、被删的旧清单）
+- 以 `.dedupe/2026-10-19.json` 的 `theme_frontmatter_before` 还原 `18.md`（id 回单值、册别回 `9下`、分值回 1），`34.md` 从 `.trash` 还原原位
+- 反向重跑 `--merge 34.md --with 18.md --apply` → 主题 `2023全国新课标卷-34`（id 双值、来源四元、册别 `纲要下, 9下`、分值 4 保留、备注「分值 4→1」），18.md 归档至 `.trash/初中-2中考模拟题/…`
+- 删除错误留痕 `高中-1高考真题/2023全国新课标卷/_重复题清单.md`（原记「34 → 18」，已失效）
+- `check_note_links.py --fix --apply`：`3-试题研究/9下第1单元…-考查方向分析.md` 行 417 引用改指 34（别名保留原题号文本），日志 `.linkfix/20261022-141626.json`
+
+**验证**：`tests/test_qb.py` **80 条全绿**；真实库 `--check-authority` 修前报 1 处、修后 0 处；`scan_questions.py` 无问题；`check_note_links.py` 1390 处链接全通；`--list-merged` 显示「主题 2023全国新课标卷-34 ← 别名 2026洛阳涧西区一模-18」。
+
+**遗留提示**：`.dedupe/2026-10-19.json` 里该条的 `aliases[].id` 仍记 `2023全国新课标卷-11`（该卷后按文综卷面题号重编为 24–35，11→34 时日志未同步）；`--rollback` 依赖日志，遇此情形须人工核对归档件实际文件名。
+
+---
+
 ## 2026-10-20 · 🧹 清理「`{卷名}_小论文`」目录兼容死代码 ＋ 修 `--卷` 带图导出 NameError（v1.29.1）
 
 **缘起**：`export_student_paper.py`、`linkify_citations.py` 仍留着「存量论述题目录为 `{卷名}_小论文`」的分支与注释。实测本库（`D:/Documents/TNote`）：**`*_小论文` 目录 0 个**、**`题型: 小论文` 0 条**（`*_论述题` 108 个），2026-09 的题型统一迁移早已完成——代码与注释都在误导（保留的分支永远命中 0 文件，注释却断言「存量仍为」）。

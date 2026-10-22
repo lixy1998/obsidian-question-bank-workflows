@@ -501,6 +501,58 @@ class TestEndToEnd(TempVaultMixin, unittest.TestCase):
         self.assertIn("题目总数：1", r2.stdout.replace(" ", ""), "坏文件不应计入题目总数")
 
 
+class TestDedupe权威序(TempVaultMixin, unittest.TestCase):
+    """一题多卷的合并方向必须服从权威序（真题 > 模拟 > 阶段测试，同级年份早者优先）。
+
+    2026-10-22 实案：`2023全国新课标卷`（高考真题）被当作别名并入 `2026洛阳涧西区一模`
+    （中考模拟）。当时 `--merge` 对权威序倒挂**只告警不阻断**，违规合并得以落地。
+    现改为写盘前硬阻断（`--allow-inferior` 才放行），并提供 `--check-authority` 体检。
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.sim = self.make_question(序号="18", 卷名="2026测试模拟卷",
+                                      来源=["2026测试模拟卷", "模拟卷"], 年份=2026)
+        self.gaokao = self.make_question(
+            序号="34", 学段="高中", 类别="1高考真题", 卷名="2023测试高考卷",
+            册别=["纲要下"], 单元=["第4单元 资本主义制度的确立"],
+            课=["第9课 资产阶级革命与资本主义制度的确立"], 小节=["资本主义的扩展"],
+            知识点=["明治维新"], 核心素养=["历史解释-史事的意义性阐释"],
+            素养层次水平=["历史解释-水平2-运用史料描述、解释相关历史现象及规律，"
+                     "说明史事间的联系，关照现实问题"],
+            关键能力=["A3-概括"], 来源=["2023测试高考卷", "真题"], 年份=2023,
+            考区="全国", 分值=4)
+
+    def test_倒挂方向被拒绝(self):
+        r = self.run_cli("dedupe_questions.py", "--merge", str(self.sim),
+                         "--with", str(self.gaokao), expect=1)
+        self.assertIn("权威序倒挂", r.stdout)
+        self.assertIn("拒绝执行", (r.stderr or "") + r.stdout)
+        self.assertTrue(self.gaokao.exists(), "被拒后别名文件不得被移动")
+
+    def test_正方向合并成功(self):
+        self.run_cli("dedupe_questions.py", "--merge", str(self.gaokao),
+                     "--with", str(self.sim), "--apply", expect=0)
+        head = self.gaokao.read_text(encoding="utf-8").split("---")[1]
+        self.assertIn("2026测试模拟卷-18", head, "别名 id 未追加到真题主卷")
+        self.assertFalse(self.sim.exists(), "别名应已离开卷内")
+        self.assertTrue((self.vault / ".trash" / self.sim.relative_to(self.vault)).exists(),
+                        "别名未归档到 .trash")
+
+    def test_体检报出既成倒挂(self):
+        d = self.vault / "初中-2中考模拟题" / "2026测试模拟卷" / "2026测试模拟卷_选择题"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "18.md").write_text("---\nid: [2026测试模拟卷-18, 2023测试高考卷-34]\n"
+                                 "题型: 选择题\n年份: 2026\n---\n\n题干\n", encoding="utf-8")
+        a = (self.vault / ".trash" / "高中-1高考真题" / "2023测试高考卷"
+             / "2023测试高考卷_选择题")
+        a.mkdir(parents=True, exist_ok=True)
+        (a / "34.md").write_text("---\nid: [2023测试高考卷-34]\n题型: 选择题\n年份: 2023\n"
+                                 "---\n\n题干\n", encoding="utf-8")
+        r = self.run_cli("dedupe_questions.py", "--check-authority", expect=0)
+        self.assertIn("权威序倒挂 1 处", r.stdout, "体检未报出：\n%s" % r.stdout[-800:])
+
+
 class Test卷结构_题号口径(TempVaultMixin, unittest.TestCase):
     """序号＝原卷面题号（v1.29.0）：合卷跳号不判不合规；跨题型重号仍判不合规。"""
 

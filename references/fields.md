@@ -374,6 +374,9 @@ id: [2024河南中考-08, 河南省实验中学2025-2026学年8上期末-03]    
 
 - 真题 B 卷与 A 卷同级（同属真题）
 - 跨年真题撞题（如 2015 与 2018 河南中考同题）取**年份最早者**（2026-09-13 裁定）
+- ⚠ **权威序倒挂 = 错误合并**（2026-10-22 定）：主题的权威序**不得低于**任一别名。`--merge` 在写盘前硬阻断（`--allow-inferior` 才放行，且写入日志 `authority_inverted`）；已合并题用 `--check-authority` 体检。
+  - 实案：`2023全国新课标卷-34`（高考真题）曾被并入 `2026洛阳涧西区一模-18`（中考模拟）——旧版脚本对倒挂**只告警不阻断**，违规合并得以落地。已反向修正（真题为主卷），报告引用同步改指。
+  - 修正倒挂的次序：① 把现主卷 frontmatter 还原为 `.dedupe` 日志里的 `theme_frontmatter_before`；② 归档件还原到原位；③ 以更权威者作主题重跑 `--merge`；④ 跑 `check_note_links.py --fix`。
 
 ### 同题判定边界（2026-09-13 裁定）
 
@@ -406,8 +409,9 @@ id: [2024河南中考-08, 河南省实验中学2025-2026学年8上期末-03]    
 ```bash
 python dedupe_questions.py --scan [--卷 X] [--阈值 0.85] [--out 清单.md] [--json]   # 全库查重
 python dedupe_questions.py --check <新题.json>                # 录入前预检（逐题返回疑似 Top-N）
-python dedupe_questions.py --merge <主题.md> --with <别名.md>[,...] --apply   # 合并（默认 dry-run）
+python dedupe_questions.py --merge <主题.md> --with <别名.md>[,...] --apply   # 合并（默认 dry-run；倒挂则拒绝）
 python dedupe_questions.py --list-merged                     # 已合并题一览
+python dedupe_questions.py --check-authority                 # 权威序体检（别名比主卷更权威即倒挂）
 python dedupe_questions.py --rollback <{vault}/.dedupe/YYYY-MM-DD.json> --apply   # 回滚
 ```
 
