@@ -127,8 +127,7 @@ YAML 字段：id/册别/单元/课/小节/知识点/核心素养/素养层次水
 ## 全局陷阱（跨流程）
 
 1. **Obsidian 锁文件**：库打开时图片复制可能 WinError 32，脚本幂等跳过；重试即可
-2. **图片格式白名单：Obsidian 根本不显示 TIFF/EMF/WMF**（Chromium 不渲染 TIFF，库里存了就是一排破图）。可显示格式仅 **jpg/jpeg/png/gif/webp/bmp/svg**。
-   - **选格式依据**：连续调扫描件/照片存 **JPG**（PNG 反而大数倍）；只有**真透明**（alpha 存在非 255 像素）或**颜色数 ≤16 的二值/图表**才留 PNG。⚠ TIFF 是 4 通道 ≠ 有透明
+2. **图片格式白名单：Obsidian 根本不显示 TIFF/EMF/WMF**（Chromium 不渲染 TIFF，库里存了就是一排破图）。可显示格式仅 **jpg/jpeg/png/gif/webp/bmp/svg** 7 种；格式选型（何时 JPG、何时 PNG）与存量巡检见 `workflow/03-check.md`「图片格式体检」。
    - **分工（细则已下放）**：录入端的**源头守卫**（`read_docx.py` / `pull_pdf_images.py` 的格式守卫）与选型 → `workflow/01-input.md` 陷阱 2；**存量巡检与批量转换**、五类非标准引用规范化、转换后三件事、读图兜底 → `workflow/03-check.md`「图片格式体检」；**「试卷讲解PPT」源的黑底 / 反相 / 多图裁开定式** → `references/参考-图片与图注修复.md` §六
 3. **跑 `scripts/` 下任何脚本前，先确认它带 `argparse`**：批量为脚本跑 `--help` 做可用性巡检时，**没有 `argparse` 的脚本会把 `--help` 当普通参数直接执行 `main()`**（可能当场重建索引或改写文档）。两条硬规矩：① 巡检前先 `grep -l argparse scripts/*.py`，未命中的脚本**只读源码、不执行**；② 凡写库脚本一律「vault 取 `qb_schema.get_vault()`（环境变量 > 配置文件 > 报错），**禁止 cwd 兜底**；默认 dry-run 预览，`--apply` 才落盘」。
 
