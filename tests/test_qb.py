@@ -37,7 +37,7 @@ CLI_SCRIPTS = [
     "fix_image_formats.py", "fix_item_spacing.py", "fix_quote_to_plain.py", "fix_table_render.py",
     "gen_index.py", "gen_problem.py", "import_from_md.py",
     "linkify_citations.py", "normalize_id.py", "pull_pdf_images.py",
-    "read_docx.py", "scan_lesson.py", "scan_missed.py", "scan_questions.py",
+    "read_docx.py", "record_usage.py", "scan_lesson.py", "scan_missed.py", "scan_questions.py",
     "scan_volume.py", "setup.py", "verify_against_source.py", "verify_paper_layout.py",
 ]
 LIB_MODULES = ["qb_schema.py", "qb_bootstrap.py"]
@@ -1142,6 +1142,122 @@ class Test录入与整治辅助(TempVaultMixin, unittest.TestCase):
         r = self.run_cli("edit_fields.py", "--去重", "答案")
         self.assertNotEqual(r.returncode, 0, "白名单外字段应拒绝执行")
         self.assertIn("白名单", r.stderr + r.stdout)
+
+
+class Test组卷使用登记(TempVaultMixin, unittest.TestCase):
+    """record_usage.py：本校考试卷登记（题目 id/来源 追加卷名 + 卷目录放 _组卷清单.md）。
+
+    设计要点（2026-10-24 定）：本校卷不另存题目，靠「一题多卷」语义留痕——
+    id 追加 `{卷名}-{卷面题号}`、来源成对追加 `(卷名, 类型标签)`；
+    故本类同时校验「不动首项」「来源不成对不猜」「幂等」「撤销可复原」。
+    """
+
+    VOL = "2026-2027-7上月考1"
+
+    def _清单(self, *ids):
+        p = self.vault / "_组卷清单.yaml"
+        body = "卷名: 测试月考\n题目:\n" + "".join(f"  - {i}\n" for i in ids)
+        p.write_text(body, encoding="utf-8")
+        return p
+
+    def _fm(self, path):
+        """取题目文件的 id / 来源 两行（原样字符串）。"""
+        text = path.read_text(encoding="utf-8")
+        return {k: [l for l in text.splitlines() if l.startswith(k + ":")][0].split(": ")[1]
+                for k in ("id", "来源")}
+
+    def test_登记_追加id与来源并生成组卷清单(self):
+        f1 = self.make_question(序号="01")
+        f2 = self.make_question(序号="02", 题型="材料解析题", 分值=6)
+        cl = self._清单("2026测试卷-01", "2026测试卷-02")
+        r = self.run_cli("record_usage.py", "--清单", str(cl), "--卷", self.VOL,
+                         "--日期", "2026-10-11", "--范围", "7上第1-2单元", "--apply", expect=0)
+        self.assertIn("id 追加 2 题", r.stdout)
+        # 首项（主卷）不动，本卷 id 追加在末尾
+        self.assertEqual(self._fm(f1)["id"], "[2026测试卷-01, 2026-2027-7上月考1-01]")
+        # 来源成对追加（卷名, 月考卷）
+        self.assertEqual(self._fm(f1)["来源"],
+                         "[2026测试卷, 模拟卷, 2026-2027-7上月考1, 月考卷]")
+        # 正文一字不动
+        self.assertIn("司母戊鼎是迄今世界上出土的最重的青铜器", f1.read_text(encoding="utf-8"))
+        # 卷目录：只有 _组卷清单.md，且带 25 题都不怕的题表与 wikilink
+        ck = self.vault / "初中-3阶段测试" / self.VOL / "_组卷清单.md"
+        self.assertTrue(ck.exists(), "未生成组卷清单")
+        ck_text = ck.read_text(encoding="utf-8")
+        self.assertIn("| 01 |", ck_text)
+        self.assertIn("\\|2026测试卷-01]]", ck_text)       # 表格内管道符已转义
+        self.assertIn(f"题量: 2", ck_text)
+
+    def test_来源不成对时只追加id不猜类型(self):
+        f = self.make_question(序号="01", 来源=["2026测试卷"])   # 单项来源＝不成对
+        cl = self._清单("2026测试卷-01")
+        r = self.run_cli("record_usage.py", "--清单", str(cl), "--卷", self.VOL,
+                         "--apply", expect=0)
+        self.assertIn("跳过（原来源不成对）", r.stdout)
+        self.assertIn("不猜类型", r.stdout)
+        fm = self._fm(f)
+        self.assertEqual(fm["id"], "[2026测试卷-01, 2026-2027-7上月考1-01]")
+        self.assertEqual(fm["来源"], "[2026测试卷]")            # 来源原样保留
+
+    def test_幂等_重复跑不重复追加(self):
+        f = self.make_question(序号="01")
+        cl = self._清单("2026测试卷-01")
+        for _ in range(2):
+            self.run_cli("record_usage.py", "--清单", str(cl), "--卷", self.VOL,
+                         "--apply", "--覆盖", expect=0)
+        fm = self._fm(f)
+        self.assertEqual(fm["id"].count("2026-2027-7上月考1-01"), 1)
+        self.assertEqual(fm["来源"].count("2026-2027-7上月考1"), 1)
+
+    def test_已用_按学年排出已用题(self):
+        self.make_question(序号="01")
+        cl = self._清单("2026测试卷-01")
+        self.run_cli("record_usage.py", "--清单", str(cl), "--卷", self.VOL, "--apply", expect=0)
+        r = self.run_cli("record_usage.py", "--已用", "2026-2027", "--json", expect=0)
+        out = json.loads(r.stdout)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["主卷"], "2026测试卷-01")
+        self.assertEqual(out[0]["被用于"], [self.VOL])
+        # 别的学年应为空
+        r2 = self.run_cli("record_usage.py", "--已用", "2025-2026", expect=0)
+        self.assertIn("尚无已用题目", r2.stdout)
+
+    def test_撤销_还原id与来源并清理空卷目录(self):
+        f = self.make_question(序号="01")
+        cl = self._清单("2026测试卷-01")
+        self.run_cli("record_usage.py", "--清单", str(cl), "--卷", self.VOL, "--apply", expect=0)
+        self.run_cli("record_usage.py", "--卷", self.VOL, "--撤销", "--apply", expect=0)
+        fm = self._fm(f)
+        self.assertEqual(fm["id"], "[2026测试卷-01]")
+        self.assertEqual(fm["来源"], "[2026测试卷, 模拟卷]")
+        self.assertFalse((self.vault / "初中-3阶段测试" / self.VOL).exists(),
+                         "撤销后应移除空卷目录")
+        self.run_cli("record_usage.py", "--体检", expect=0)
+
+    def test_体检_档案漏记能检出(self):
+        self.make_question(序号="01")
+        self.make_question(序号="02")
+        cl = self._清单("2026测试卷-01", "2026测试卷-02")
+        self.run_cli("record_usage.py", "--清单", str(cl), "--卷", self.VOL, "--apply", expect=0)
+        ck = self.vault / "初中-3阶段测试" / self.VOL / "_组卷清单.md"
+        # 人为从档案题目表里删掉一题，模拟「题目侧有、档案漏记」
+        text = ck.read_text(encoding="utf-8")
+        ck.write_text(text.replace("题目: [2026测试卷-01, 2026测试卷-02]",
+                                   "题目: [2026测试卷-01]"), encoding="utf-8")
+        r = self.run_cli("record_usage.py", "--体检", expect=1)
+        self.assertIn("档案漏记", r.stdout)
+
+    def test_卷名不合规被拒(self):
+        r = self.run_cli("record_usage.py", "--卷", "月考1", "--查题目", expect=None)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("不合格式", r.stderr + r.stdout)
+
+    def test_卷名缺类型词被拒(self):
+        cl = self._清单("2026测试卷-01")
+        r = self.run_cli("record_usage.py", "--清单", str(cl), "--卷", "2026-2027-第1次",
+                         expect=None)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("类型词", r.stderr + r.stdout)
 
 
 if __name__ == "__main__":
