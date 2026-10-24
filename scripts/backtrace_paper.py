@@ -30,7 +30,6 @@ import difflib
 import json
 import re
 import sys
-from collections import Counter
 from pathlib import Path
 
 try:
@@ -39,7 +38,7 @@ except ImportError:
     yaml = None
 
 sys.path.insert(0, str(Path(__file__).parent))
-from qb_bootstrap import bootstrap, require_vault
+from qb_bootstrap import bootstrap
 from qb_schema import (as_list, is_question_file, split_frontmatter,
                        stage_roots)
 

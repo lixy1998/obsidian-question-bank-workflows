@@ -20,7 +20,7 @@ from pathlib import Path
 
 from qb_bootstrap import bootstrap
 from qb_schema import (SchemaError, as_list, build_body, copy_images,
-                       dump_yaml, question_dir, question_path,
+                       dump_yaml, question_path,
                        split_frontmatter, validate_lesson, validate_record)
 
 LIST_FIELDS = ["id", "册别", "单元", "课", "小节", "知识点", "核心素养",

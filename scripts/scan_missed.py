@@ -13,7 +13,6 @@
          「只把它当背景标过、正文却在讲它」的题
 """
 import argparse
-import re
 import sys
 from pathlib import Path
 

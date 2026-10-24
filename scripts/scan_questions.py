@@ -25,14 +25,13 @@ import json
 import re
 import sys
 from collections import Counter
-from pathlib import Path
 
 from qb_bootstrap import bootstrap, require_vault
 from qb_schema import (BOOKS, DIFFICULTIES, REQUIRED_FIELDS, TYPES,
                        TYPE_ALIASES,
                        SchemaError, as_list, is_question_file,
                        split_frontmatter, stage_roots, validate_lesson,
-                       load_lesson_units, load_method_names, METHOD_UNIT)
+                       load_lesson_units, load_method_names)
 
 try:
     import yaml

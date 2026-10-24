@@ -32,7 +32,7 @@ import json
 import re
 import shutil
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import date
 from hashlib import sha1
 from pathlib import Path
