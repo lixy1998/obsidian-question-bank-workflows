@@ -508,6 +508,7 @@ def cmd_used(args) -> int:
 def cmd_check(args) -> int:
     vault = require_vault()
     problems = []
+    notes = []
     allq = scan_all()
     dirs = {}
     for stage in ("初中", "高中"):
@@ -523,10 +524,11 @@ def cmd_check(args) -> int:
         if not ck.exists():
             problems.append(f"[缺档案] {name}：卷目录存在但无 {CHECKLIST}")
             continue
-        no_files = [p for p in d.rglob("*.md") if is_question_file(p)]
-        if no_files:
-            problems.append(f"[混装] {name}：卷目录内有 {len(no_files)} 个题目文件"
-                            f"（本卷应只放 {CHECKLIST}，除非本卷也是某些题的主卷）")
+        # 本卷兼作主卷（本校原创题首次入库就放在本卷目录）属设计允许，只提示不报错
+        own = [p for p in d.rglob("*.md") if is_question_file(p)]
+        if own:
+            notes.append(f"[兼作主卷] {name}：卷目录内有 {len(own)} 个题目文件"
+                         f"（本卷既是组卷记录，也是这些原创题的主卷）")
         # 档案题目表 ↔ 题目侧 id 双向比对
         listed = [str(x) for x in as_list(fm_of(ck).get("题目"))]
         actual = [q["primary"] for q in allq
@@ -548,9 +550,12 @@ def cmd_check(args) -> int:
                 break
 
     if args.json:
-        print(json.dumps({"问题": problems, "卷数": len(dirs)}, ensure_ascii=False, indent=2))
+        print(json.dumps({"问题": problems, "提示": notes, "卷数": len(dirs)},
+                         ensure_ascii=False, indent=2))
         return 1 if problems else 0
     print(f"[体检] 本校卷目录 {len(dirs)} 个")
+    for x in notes:
+        print("   " + x)
     if not problems:
         print("✅ 未发现问题")
         return 0
