@@ -237,6 +237,8 @@ def checklist_text(vol: str, rows: list, meta: dict, vault: Path) -> str:
         return str(v if v not in (None, "") else "—").replace("|", r"\|")
 
     lines = ["---", "类型: 组卷清单", f"卷名: {vol}"]
+    if meta.get("标题"):
+        lines.append(f"标题: {meta['标题']}")
     for k in ("考试日期", "范围", "满分", "时长"):
         if meta.get(k):
             lines.append(f"{k}: {meta[k]}")
@@ -247,6 +249,8 @@ def checklist_text(vol: str, rows: list, meta: dict, vault: Path) -> str:
               f"本表按 `id` 别名反查。",
               f"> 题目侧的 `id` 与 `来源` 已追加本卷（`{vol}-<卷面题号>`），"
               f"故打开任意题目可在 `id` 多值中看到本卷。", ""]
+    if meta.get("标题"):
+        lines.append(f"- 卷面标题：{meta['标题']}")
     for k in ("考试日期", "范围", "满分", "时长"):
         if meta.get(k):
             lines.append(f"- {k}：{meta[k]}")
@@ -324,6 +328,7 @@ def cmd_record(args) -> int:
     backup = Path(tempfile.gettempdir()) / "qb-usage" / datetime.now().strftime("%Y%m%d-%H%M%S")
     backup.mkdir(parents=True, exist_ok=True)
     changed = []
+    vault = require_vault()
     for r in plan:
         changes = {}
         if r["id"] == "追加":
@@ -332,12 +337,15 @@ def cmd_record(args) -> int:
             changes["来源"] = r["_src"]
         if not changes:
             continue
-        dst = backup / r["path"].name
+        # 备份保留相对路径结构：只存文件名会「同题号互相覆盖」（多卷都用 18.md）
+        dst = backup / r["path"].relative_to(vault)
+        dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(r["path"].read_bytes())
         if rewrite_fields(r["path"], changes):
             changed.append(r["primary"])
 
-    meta = {"考试日期": args.日期, "范围": args.范围, "满分": args.满分,
+    meta = {"标题": str(man.get("标题") or "").strip(),
+            "考试日期": args.日期, "范围": args.范围, "满分": args.满分,
             "时长": args.时长, "清单": Path(args.清单).name}
     if not ck.exists() or args.覆盖:
         vd.mkdir(parents=True, exist_ok=True)
@@ -432,7 +440,8 @@ def cmd_revoke(args) -> int:
             changes["来源"] = [x for j, x in enumerate(src) if j not in drop]
         if not changes:
             continue
-        (backup / (q["primary"] + ".md")).write_bytes(q["path"].read_bytes())
+        (backup / q["path"].relative_to(vault)).parent.mkdir(parents=True, exist_ok=True)
+        (backup / q["path"].relative_to(vault)).write_bytes(q["path"].read_bytes())
         if rewrite_fields(q["path"], changes):
             changed.append(q["primary"])
 

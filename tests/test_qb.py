@@ -1259,6 +1259,22 @@ class Test组卷使用登记(TempVaultMixin, unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("类型词", r.stderr + r.stdout)
 
+    def test_备份保留相对路径结构(self):
+        """备份只存文件名会让多卷同题号互相覆盖（实测 15.md 撞车）——须保留库内相对路径。"""
+        import re as _re
+        f1 = self.make_question(序号="01")
+        f2 = self.make_question(序号="02")
+        cl = self._清单("2026测试卷-01", "2026测试卷-02")
+        r = self.run_cli("record_usage.py", "--清单", str(cl), "--卷", self.VOL,
+                         "--apply", expect=0)
+        bak = _re.search(r"备份 (\S.*)$", r.stdout, _re.M).group(1).strip()
+        bdir = Path(bak)
+        self.assertTrue(bdir.is_dir(), "备份目录不存在：%s" % bak)
+        rels = [p.relative_to(bdir).as_posix() for p in bdir.rglob("*.md")]
+        # 备份里必须能区分同卷不同题，且保留 初中-*/卷名/… 结构
+        self.assertIn("初中-2中考模拟题/2026测试卷/2026测试卷_选择题/01.md", rels)
+        self.assertIn("初中-2中考模拟题/2026测试卷/2026测试卷_选择题/02.md", rels)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
