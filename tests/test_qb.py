@@ -347,6 +347,12 @@ class TestAreaSimilarPure(unittest.TestCase):
                      ("广东", "广西"), ("江苏", "江西"), ("安阳", "南阳"), ("濮阳", "洛阳")]:
             self.assertEqual(self._pairs({a: 100, b: 50}), set(), "%s/%s 不应报" % (a, b))
 
+    def test_无地域属性规范值都在合法集合内(self):
+        # 缺一个就会把该规范值当「集合外变体」，与近邻值凑成假阳性告警
+        import scan_questions
+        for v in ("全国", "原创", "案例"):
+            self.assertIn(v, scan_questions.KNOWN_AREAS, "%s 应在 KNOWN_AREAS 内" % v)
+
     def test_快照_真实库取值零命中(self):
         # 2026-10-03 全库 29 个考区取值的快照；数据新增后若命中，先人工确认是否真为异写再更新快照
         real = {"河南": 875, "洛阳": 640, "郑州": 393, "海南": 121, "南阳": 74, "广东": 73,
