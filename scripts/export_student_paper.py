@@ -46,15 +46,14 @@
 import argparse
 import json
 import re
-import shutil
 import sys
 
 from pathlib import Path
 
-from qb_bootstrap import bootstrap, require_vault
-from qb_schema import (is_question_file, as_list, split_frontmatter,
+from qb_bootstrap import bootstrap
+from qb_schema import (is_question_file, split_frontmatter,
                        stage_roots, strip_comments)
-from paperkit.paths import build_index, img_ns, norm_no, vol_name_of
+from paperkit.paths import build_index, img_ns, norm_no
 from paperkit.manifest import load_manifest, norm_items, resolve_items
 from paperkit.images import (MD_IMG_ANY_RE, WK_IMG_ANY_RE, _is_img_ref, _repl_std,
                              bundle_images, iter_img_refs, rewrite_img, _copy_img_refs)
@@ -65,11 +64,8 @@ from paperkit.slots import (IMG_SLOT_RE, find_answer_slot, is_img_slot,
 from paperkit.sections import (big_title, blanks_for, is_choice, rtype_of,
                                section_marks, sub_scores)
 from paperkit.md_render import compose_md_body, header_md, render_md
-from paperkit.spec import (CHOICE_COLS, SRC_TYPE_TAGS, _LESSON_RE, ability_bucket,
-                           ability_cells, angle_cell, clean_src, effective_answer,
-                           lesson_cell, lesson_no, scope_cell, short_lesson,
-                           spec_lines, sub_questions)
-from paperkit.balance import balance_options, print_balance
+from paperkit.spec import spec_lines
+from paperkit.balance import balance_options
 from paperkit.checkup import checkup
 from paperkit import docx_kit as kit
 

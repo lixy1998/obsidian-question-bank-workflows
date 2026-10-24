@@ -81,7 +81,7 @@ python scripts/scan_volume.py --册 9上 --json                             # �
 2. **课次序号漂移**：教材改版后同一内容课次会变，**课名比对优先于课次比对**
 3. **空字段干扰**：部分题「课」「册别」未标注，统计时会混入空串（脚本已显式过滤）
 4. **`images/` 子目录**：遍历时若不限定 `.md` 后缀会对目录调用 `open`，触发 PermissionError
-5. **不要手写解析脚本**：早期版本要求每次内联写解析器，易踩 `re.MULTILINE + \s*` 让 `\s` 匹配换行、字段值溢出吞掉下一行等坑 → 现在一律用 `qb_schema`（`split_frontmatter`）＋ `scan_volume.py`
+5. **不要手写解析脚本**：一律用 `qb_schema`（`split_frontmatter`）＋ `scan_volume.py`——手写解析器易踩 `re.MULTILINE + \s*` 让 `\s` 匹配换行、字段值溢出吞掉下一行等坑
 6. **教材改版后的新单元名**：BOOK_INDEX 中单元名行**不得带注记**（如「（完全重写）」），否则与题库比对全军覆没；改版信息写在 `references/book_index.md` 的说明段，不写进单元名本身
 
 ## 常见结论基线
