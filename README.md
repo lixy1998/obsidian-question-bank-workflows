@@ -42,7 +42,7 @@ Obsidian历史题库搭建与组卷/          # 仓库工作区：D:\WorkDaily-�
 │   ├── scan_questions.py         # 全库校验（必填/枚举/课名/正文/id 多值/定位字段/多值配对提示/frontmatter YAML 失效单列）
 │   ├── dedupe_questions.py       # 查重 + 一题多卷合并（scan/check/merge/rollback）
 │   ├── export_student_paper.py   # 组卷导出 CLI（清单驱动 → md/Word 卷 + 答题卡 + 命题说明 + 卷面体检）
-│   ├── backtrace_paper.py        # 从成品卷反查题库 id、还原组卷清单
+│   ├── backtrace_paper.py        # 从成品卷反查题库 id、还原组卷清单（--带题号 保原卷面题号；卷首注意事项自动剔除）
 │   ├── verify_paper_layout.py    # 试卷版式校验器（docx 字号行距 / 卷结构层）
 │   ├── verify_against_source.py  # 录入后回归自检（入库正文 ↔ 源文本逐题比对，支持单文件多卷）
 │   ├── check_note_links.py       # 笔记引用体检（断链 / 指向 .trash 的不合规引用，可改指主卷）

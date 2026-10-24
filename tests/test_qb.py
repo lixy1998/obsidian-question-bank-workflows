@@ -1259,6 +1259,21 @@ class Test组卷使用登记(TempVaultMixin, unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("类型词", r.stderr + r.stdout)
 
+    def test_清单带序号时题号按序号(self):
+        """成品卷反查的清单常有缺口（改编题匹配不上），题号须按「序号」而非清单顺序。"""
+        f1 = self.make_question(序号="01")
+        f2 = self.make_question(序号="02")
+        p = self.vault / "_带号.yaml"
+        p.write_text("卷名: 测试\n题目:\n"
+                     "- id: 2026测试卷-01\n  序号: 4\n"
+                     "- id: 2026测试卷-02\n  序号: 7\n", encoding="utf-8")
+        self.run_cli("record_usage.py", "--清单", str(p), "--卷", self.VOL, "--apply", expect=0)
+        self.assertIn(f"{self.VOL}-04", self._fm(f1)["id"])
+        self.assertIn(f"{self.VOL}-07", self._fm(f2)["id"])
+        # 档案须标注缺号（题库外/已改编题）
+        ck = self.vault / "初中-3阶段测试" / self.VOL / "_组卷清单.md"
+        self.assertIn("题库外题目", ck.read_text(encoding="utf-8"))
+
     def test_备份保留相对路径结构(self):
         """备份只存文件名会让多卷同题号互相覆盖（实测 15.md 撞车）——须保留库内相对路径。"""
         import re as _re
@@ -1274,6 +1289,34 @@ class Test组卷使用登记(TempVaultMixin, unittest.TestCase):
         # 备份里必须能区分同卷不同题，且保留 初中-*/卷名/… 结构
         self.assertIn("初中-2中考模拟题/2026测试卷/2026测试卷_选择题/01.md", rels)
         self.assertIn("初中-2中考模拟题/2026测试卷/2026测试卷_选择题/02.md", rels)
+
+
+class Test反查卷首剔除(unittest.TestCase):
+    """backtrace_paper.drop_header_notes：卷首「1.本卷为…／2.每小题只有…」不得被当成第 1、2 题。
+
+    回归：2026-10-24 实测 50 题的周测被切成 50 段，真第 1 题落到第 4 段——
+    匹配全对但**题号整体错 3 位**，登记时会写错 alias id。
+    """
+
+    def test_编号注意事项被剔除而正文不动(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import backtrace_paper as bt
+        lines = ["1.本卷为选择题卷，共50 小题，每小题2 分，共100 分。",
+                 "2.每小题只有一个选项符合题意，请将所选答案填入卷末答题卡内。",
+                 "3.答题前请将姓名、班级填写在第6 页答题卡位置。",
+                 "1．你跟随国际旅行团来到一个景点，导游介绍……",
+                 "A．亚洲　　B．非洲　　C．欧洲　　D．美洲",
+                 "2．下列知识卡片是关于古代农业文明的描述。"]
+        kept = bt.drop_header_notes(lines)
+        self.assertEqual(len(kept), 3, "只应剔除 3 行卷首注意事项")
+        self.assertTrue(kept[0].startswith("1．你跟随"), "真第 1 题必须保留")
+
+    def test_正文中的编号行不受影响(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import backtrace_paper as bt
+        lines = ["材料一  1．本卷为某校史料汇编。", "（1）概括其内容。（6分）"]
+        self.assertEqual(len(bt.drop_header_notes(lines)), 2,
+                         "行首不是数字编号的正文行不得误删")
 
 
 if __name__ == "__main__":

@@ -270,6 +270,22 @@ def detect_order(paper_opts: list, db_opts: list) -> list:
 
 ANS_LINE = re.compile(r"^\s*\d{1,2}\s*[．.、]\s*[A-DＡ-Ｄ](?:\s|　)*\d{1,2}\s*[．.、]\s*[A-DＡ-Ｄ]")
 
+# 卷首「1.本卷为选择题卷…／2.每小题只有一个选项…／3.答题前请…」——行首带编号，
+# 会被 split_questions 当成第 1、2、3 题，把后面所有题号整体顶偏
+# （2026-10-24 实测：50 题的周测被切成 50 段，真第 1 题落到第 4 段）
+HEADER_NOTE = re.compile(
+    r"^\s*\d{1,2}\s*[.．、]\s*[^\n]{0,40}(?:本卷为|本卷共|每小题只有|答题前|考试结束后|"
+    r"请将所选答案|只交第|满分\s*[:：]|建议用时)")
+
+
+def drop_header_notes(lines: list) -> list:
+    """剔除以数字编号书写的卷首注意事项（不是题）。"""
+    kept = [l for l in lines if not HEADER_NOTE.match(l)]
+    dropped = len(lines) - len(kept)
+    if dropped:
+        print(f"[读卷] 剔除卷首注意事项 {dropped} 行")
+    return kept
+
 
 def extract_answers(lines: list) -> dict:
     """从成品卷提取答案连排行（成品卷卷内带答案时）→ {题号: 答案}。"""
@@ -296,6 +312,9 @@ def main():
     ap.add_argument("--候选数", type=int, default=5, help="低分题列出的候选数（默认 5）")
     ap.add_argument("--报告", action="store_true", help="只打印报告，不写清单")
     ap.add_argument("--卷名", help="清单里的卷名（默认取成品卷文件名）")
+    ap.add_argument("--带题号", action="store_true",
+                    help="清单每项带 `序号`（＝原卷面题号）。成品卷有匹配不上的题时必须加——"
+                         "否则清单只剩命中题，按顺序登记会把后面所有题号顶错（2026-10-24 实测）")
     args = ap.parse_args()
 
     src = Path(args.卷)
@@ -311,7 +330,7 @@ def main():
     else:
         raise SystemExit(f"[失败] 不支持的格式：{suffix}（支持 .docx/.md/.pdf）")
 
-    qs = split_questions(lines)
+    qs = split_questions(drop_header_notes(lines))
     if len(qs) < 2:
         raise SystemExit("[失败] 未切出成卷题目——请确认是文字版卷面（扫描件需先 MinerU 提取）")
     print(f"[读卷] {src.name}：切出 {len(qs)} 题")
@@ -365,6 +384,8 @@ def main():
         if not x:
             continue
         item = {"id": x["id"]}
+        if args.带题号:
+            item["序号"] = x["no"]
         if x["分值"] not in (None, ""):
             item["分值"] = x["分值"]
         if x["选项序"]:

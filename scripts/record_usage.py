@@ -60,9 +60,9 @@ LOG_DIR = ".usage"
 VOL_RE = re.compile(r"^(\d{4})-(\d{4})-(.+)$")
 
 # 卷名类型词 → 来源类型标签（受控值，见 qb_schema.SOURCE_TAG_HINTS）
-TAG_RULES = [("课堂练习", "练习卷"), ("单元测", "单元卷"), ("周测", "周测卷"),
-             ("月考", "月考卷"), ("期中", "期中卷"), ("期末", "期末卷"),
-             ("专题", "专题卷"), ("模拟", "模拟卷")]
+TAG_RULES = [("课堂练习", "练习卷"), ("练习", "练习卷"), ("单元测", "单元卷"),
+             ("周测", "周测卷"), ("月考", "月考卷"), ("期中", "期中卷"),
+             ("期末", "期末卷"), ("专题", "专题卷"), ("模拟", "模拟卷")]
 
 STAGE_DIR = {"初中": "初中-3阶段测试", "高中": "高中-3阶段测试"}
 GAOZHONG_HINT = re.compile(r"纲要|选必|选修")
@@ -182,7 +182,11 @@ def scan_all() -> list:
 # ---------------- 主体：登记 ----------------
 
 def build_rows(items: list, index: dict) -> tuple:
-    """清单条目 → 行记录；返回 (rows, miss)。"""
+    """清单条目 → 行记录；返回 (rows, miss)。
+
+    卷面题号：清单项自带 `序号`/`题号` 时以它为准（成品卷反查后常有未匹配题，
+    按顺序编号会把后面全顶错）；否则按清单顺序两位补零。
+    """
     rows, miss = [], []
     for i, it in enumerate(items, 1):
         qid = str(it.get("id") or "").strip()
@@ -190,9 +194,15 @@ def build_rows(items: list, index: dict) -> tuple:
         if p is None:
             miss.append((i, qid))
             continue
+        raw_no = it.get("序号", it.get("题号"))
+        if raw_no in (None, ""):
+            no = f"{i:02d}"
+        else:
+            s = str(raw_no).strip()
+            no = s.zfill(2) if s.isdigit() else s
         fm = fm_of(p)
         ids = [str(x).strip() for x in as_list(fm.get("id"))]
-        rows.append({"no": f"{i:02d}", "path": p, "fm": fm, "ids": ids,
+        rows.append({"no": no, "path": p, "fm": fm, "ids": ids,
                      "primary": ids[0] if ids else qid, "清单id": qid,
                      "分值": it.get("分值") or fm.get("分值")})
     return rows, miss
@@ -256,6 +266,11 @@ def checklist_text(vol: str, rows: list, meta: dict, vault: Path) -> str:
             lines.append(f"- {k}：{meta[k]}")
     if meta.get("清单"):
         lines.append(f"- 组卷清单源文件：`{meta['清单']}`")
+    nums = sorted(int(r["no"]) for r in rows if str(r["no"]).isdigit())
+    gaps = [n for n in range(1, max(nums) + 1) if n not in nums] if nums else []
+    if gaps:
+        lines.append(f"- 题库外题目：第 {'、'.join(map(str, gaps))} 题"
+                     f"（卷面有、未匹配到题库，未登记；如需统计请先录入）")
     lines += ["", "| 卷面题号 | 题目 | 题型 | 分值 | 主考课 | 难度 | 来源类型 |",
               "|---|---|---|---|---|---|---|"]
     for r in rows:
