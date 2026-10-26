@@ -10,7 +10,9 @@
 
 自动处理（均为录入实测踩过的坑）：
   · **剔除卷首「注意事项」段**——其「1. 2. 3.」编号行会被正则误认成题号，
-    按「首次出现」建块时会覆盖真正的第 1~3 题；
+    按「首次出现」建块时会覆盖真正的第 1~3 题。终止判据认**三种节标题形态**
+    （`一、选择题` / `选择题(共20小题,20分)` / `第一部分 选择题`，容许 `#`、`**`、`>` 前缀）；
+    **整卷无节标题时降级**为按说明行特征剔除并告警——判据失配**不等于**无需剔除；
   · **截断答案区**——按「此资料来源于 / 历史试题参考答案 / 参考答案 / 【参考答案】/
     历史答案 / 试题答案 / 答案与解析 / 评分标准」等标记与紧凑答案行（`1-5:BABDA`）中
     **最靠前者**截断（试卷区恒在答案区之前），并**回退到该行行首**
@@ -53,11 +55,34 @@ ANSWER_TAIL_PATTERNS = (
 )
 ANSWER_ROW_RE = re.compile(r"\n[ \t]*\d{1,2}[-–]\d{1,2}[：:]")
 NOTE_RE = re.compile(r"[注註]意事项")
-SECTION_RE = re.compile(r"\n[ \t]*[一二三四五六七八九十]+、")
+# 大题 / 节标题。三种实测形态：
+#   ① 「一、选择题」（序号 + 顿号，其后可带题型名与分值）
+#   ② 「选择题(共20小题,20分)」（无序号：题型名 + 括号分值说明）
+#   ③ 「第一部分 选择题」
+# 容许行首 md 前缀（#、**、>）与行尾加粗；**必须整行命中**，否则正文里的「选择题」
+# 三字、材料引文里的「一、」都会误切块。
+_SECT_NAMES = (r"单项选择题|选择题|非选择题|材料解析题|材料分析题|材料题|论述题|"
+               r"综合探究题|探究题|填空题|判断题|简答题")
+_SECT_PFX = r"[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*[ \t]*)?(?:>[ \t]*)?(?:\*[ \t]*)?"
+_SECT_BODY = (r"(?:[一二三四五六七八九十]+\s*、[^\n]*"                       # ①
+              r"|(?:第[一二三四五六七八九十]部分\s*[·、．.]?\s*)?(?:"
+              + _SECT_NAMES + r")(?:[（(][^）)\n]{0,40}[）)])?)")             # ②③
+_SECT_TAIL = r"[ \t]*(?:\*\*)?[ \t]*\r?"
+SECT_HEAD_RE = re.compile(r"^" + _SECT_PFX + _SECT_BODY + _SECT_TAIL + r"$")
+SECTION_RE = re.compile(r"\n" + _SECT_PFX + _SECT_BODY + _SECT_TAIL + r"(?=\n|$)")
 QNO_RE = re.compile(r"^[ \t]*(?:#{1,6}[ \t]*)?(\d{1,2})[.．][ \t]*(.*)$")
 OPT_START_RE = re.compile(r"(?:^|\n)[ \t]*A[.．]")
 IMG_RE = re.compile(r"!\[[^\]]*\]\(images/[^)]+\)")
 SCORE_RE = re.compile(r"(?<!\d)[（(]\s*\d+\s*分\s*[）)]")   # 排除「17（12分）」这类答案区题号+分值
+
+# 卷首「注意事项」只在前 N 行内识别——正文材料引文里的「注意事项」三字不得触发剔除
+NOTE_WINDOW_LINES = 20
+# 卷首说明行的用语特征（无节标题时降级剔除用；取自各卷实测用语）
+NOTE_LINE_KWS = ("答题前", "答题卡", "考生", "姓名", "考号", "准考证", "2B", "铅笔",
+                 "涂卡", "涂黑", "考试结束", "交回", "只交", "试卷上", "无效",
+                 "本卷共", "满分", "分值", "建议用时", "务必", "注意")
+# 题干里绝不该出现的卷首说明字样（回填后自检告警用）
+NOTE_STEM_KWS = ("答题前", "答题卡", "2B", "涂卡", "准考证", "只交", "交回", "考试结束")
 
 
 def strip_answer_area(md: str) -> str:
@@ -107,15 +132,56 @@ def trim_answer_tail(block: str) -> str:
     return head.rstrip()
 
 
+def _looks_like_question(s: str) -> bool:
+    """行是否像题干/选项（降级剔除时用来判断说明段到哪里结束）。"""
+    return ("（　　）" in s or "（）" in s or "()" in s
+            or bool(re.match(r"^[ABCD][.．]", s))
+            or len(s) > 60)
+
+
 def strip_notes_area(md: str) -> str:
-    """删除卷首「注意事项」段（到其后第一个「一、/二、」节标题为止）。"""
-    m = NOTE_RE.search(md)
-    if not m:
+    """删除卷首「注意事项」段。
+
+    终止判据（取最早命中）：
+      ① **节标题**——`一、选择题`／`选择题(共20小题,20分)`／`第一部分 选择题`
+         （SECT_HEAD_RE，容许 `#`/`**`/`>` 前缀）；
+      ② **降级**——整卷找不到节标题时，从「注意事项」起按「非题目行」逐行剔除，
+         到第一个像题目的行为止，并**必报告警**。
+
+    ⚠ 两条铁律：
+      · **判据失配 ≠ 无需剔除**。旧实现 `if not m2: return md` 把「找不到终止标记」
+        当成「没有说明段」，实测 4 卷共 9 题的真题干被卷首说明顶掉（2026-10-26，
+        该批卷节标题写作「选择题(共20小题,20分)」而非「一、选择题」）。
+      · 「注意事项」只在**前 NOTE_WINDOW_LINES 行**内识别，正文引文里的同名字样不触发。
+    """
+    lines = md.split("\n")
+    idx = next((i for i, l in enumerate(lines[:NOTE_WINDOW_LINES])
+                if NOTE_RE.search(l)), None)
+    if idx is None:
         return md
-    m2 = SECTION_RE.search(md[m.start():])
-    if not m2:
+
+    # ① 节标题边界：删「注意事项」起到该标题行之前
+    for j in range(idx + 1, len(lines)):
+        if SECT_HEAD_RE.match(lines[j]):
+            return "\n".join(lines[:idx] + lines[j:])
+
+    # ② 降级：无节标题 → 按说明行特征剔除（保守：命中不足 2 行视为无法定位）
+    end, dropped = idx + 1, 0
+    for j in range(idx, min(len(lines), idx + 40)):
+        s = lines[j].strip()
+        if not s:
+            end = j + 1
+            continue
+        if _looks_like_question(s):
+            break
+        end, dropped = j + 1, dropped + 1
+    if dropped < 2:
+        print("[卷首] ⚠ 命中「注意事项」但未能定位说明段边界——"
+              "请人工核对第 1~3 题题干不是说明文字")
         return md
-    return md[:m.start()] + md[m.start() + m2.start():]
+    print(f"[卷首] 未找到节标题，按说明行特征降级剔除 {dropped} 行——"
+          f"必核第 1~3 题题干未被说明文字顶替")
+    return "\n".join(lines[:idx] + lines[end:])
 
 
 def load_blocks(md: str) -> dict:
@@ -227,6 +293,9 @@ def main() -> None:
             rec["选项"] = new_opts
             if not opts:
                 print(f"  ⚠ 序号 {qno}：未切出选项，请人工核对")
+            elif len(new_opts) != 4:
+                print(f"  ⚠ 序号 {qno}：切出 {len(new_opts)} 个选项（应为 4）——"
+                      f"多为选项并排/漏项/串题，回查源文")
             if any("images/" in o for o in new_opts):
                 print(f"  ⚠ 序号 {qno}：选项内含图片引用——多见于原卷图被排到上一题的选项行内，"
                       f"请人工核对图片归属（不属本题的图须移到正确题号）")
@@ -234,6 +303,13 @@ def main() -> None:
         else:
             rec["题干"] = norm_body(blk, qno, strip_total_score=True)[0]
             filled += 1
+
+        # 第二道防线：题干含卷首说明字样 → 说明「注意事项」段没剔干净、顶掉了真题干
+        # （选项数自检查不出这种情况，scan 也查不出，只能在此告警）
+        hit = [k for k in NOTE_STEM_KWS if k in rec.get("题干", "")]
+        if hit:
+            print(f"  ⚠ 序号 {qno}：题干含卷首说明字样（{'/'.join(hit)}）——"
+                  f"疑为「注意事项」段顶掉真题干，请人工重写本题")
 
     print(f"\n回填 {filled} 题｜跳过 {skipped} 题｜源中缺块 {missing} 题")
     if args.dry_run:

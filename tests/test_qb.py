@@ -988,6 +988,47 @@ class Test录入与整治辅助(TempVaultMixin, unittest.TestCase):
         self.assertNotIn("参考答案", json.dumps(out, ensure_ascii=False))
         self.assertIn("回填 2 题", r.stdout)
 
+    def test_import_from_md_无序号节标题仍剔除注意事项(self):
+        """节标题写作「选择题(共20小题,20分)」（无「一、」序号）时，注意事项仍须剔除。
+
+        回归：2026-10-26 四卷实测——旧实现只认「一、/二、」式节标题，判据失配即
+        `return md` 整体放弃剔除，卷首「1. 2. 3.」编号行顶掉真题干（共 9 题），
+        且原题选项串进说明块；选项数自检只在「一项都没切出」时告警，故静默通过。
+        """
+        md = self._write("_src3.md", (
+            "××中学 2026 届历史\n\n"
+            "注意事项：\n\n1. 答题前请填好姓名、考号。\n\n2. 选择题用 2B 铅笔涂卡。\n\n"
+            "3. 考试结束后交回试卷。\n\n"
+            "选择题(共20小题,20分)\n\n"
+            "1．秦朝统一后在全国推行郡县制。这表明（　　）\n\n"
+            "A．分封制瓦解　B．中央集权加强　C．郡国并行　D．王位世袭\n\n"
+            "2．下图为某文物。\n\n![](images/001.jpg)\n\nA．甲　B．乙　C．丙　D．丁\n\n"
+            "参考答案\n\n1．B 2．A\n"))
+        js = self._write("_in3.json", json.dumps(
+            [{"序号": "01", "题型": "选择题"}, {"序号": "02", "题型": "选择题"}], ensure_ascii=False))
+        r = self.run_cli("import_from_md.py", "--源", str(md), "--json", str(js), expect=0)
+        out = json.loads(js.read_text(encoding="utf-8"))
+        self.assertEqual(out[0]["题干"], "秦朝统一后在全国推行郡县制。这表明（　　）")
+        self.assertEqual(out[0]["选项"], ["分封制瓦解", "中央集权加强", "郡国并行", "王位世袭"])
+        self.assertEqual(len(out[1]["选项"]), 4)
+        self.assertNotIn("注意事项", json.dumps(out, ensure_ascii=False))
+        # 剔除干净时不得出现「题干含卷首说明字样」告警
+        self.assertNotIn("题干含卷首说明字样", r.stdout)
+
+    def test_import_from_md_无节标题降级剔除(self):
+        """整卷连节标题都没有 → 降级按说明行特征剔除，并打印告警要求人工核对。"""
+        md = self._write("_src4.md", (
+            "××中学 2026 届历史\n\n"
+            "注意事项：\n\n1. 答题前请填好姓名、考号。\n\n2. 考试结束后交回试卷。\n\n"
+            "1．秦朝统一后在全国推行郡县制。这表明（　　）\n\n"
+            "A．分封制瓦解　B．中央集权加强　C．郡国并行　D．王位世袭\n"))
+        js = self._write("_in4.json", json.dumps([{"序号": "01", "题型": "选择题"}], ensure_ascii=False))
+        r = self.run_cli("import_from_md.py", "--源", str(md), "--json", str(js), expect=0)
+        out = json.loads(js.read_text(encoding="utf-8"))
+        self.assertEqual(out[0]["题干"], "秦朝统一后在全国推行郡县制。这表明（　　）")
+        self.assertIn("降级剔除", r.stdout)
+        self.assertIn("必核第 1~3 题", r.stdout)
+
     def test_import_from_md_无标记答案区兜底(self):
         """答案紧跟试题、无独立标题（省级《学科评价报告》形态）时，末题不得吞入答案。
 
