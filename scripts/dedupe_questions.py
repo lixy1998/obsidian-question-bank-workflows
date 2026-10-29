@@ -24,7 +24,9 @@
   · 主题 id 列表追加别名 id（幂等）；来源**成对追加**（卷名, 类型）
   · 册别/单元/课/小节/知识点/核心素养/素养层次水平/关键能力 取并集（主题在前）
   · 年份/考区/难度/分值 保留主题值，差异写入 YAML「解析」备注（正文保持纯净，学生卷安全）
-  · 别名题移入 {vault}/.trash/<原相对路径>（库内 Obsidian 回收站，可在面板还原到原位）；别名卷目录追加 `_重复题清单.md`
+  · 别名题移入 {vault}/.trash/<原相对路径>（库内 Obsidian 回收站，可在面板还原到原位；⚠ 回收站可被清空，
+    非可靠备份）；别名卷目录追加 `_重复题清单.md`（本卷题号/本卷 id/主题 id/合并日期/本卷分值——
+    还原时**按本卷 id 取题**，索引对 id 多值每项都指向主卷文件）
   · 日志写入 {vault}/.dedupe/YYYY-MM-DD.json（含主题 frontmatter 快照，可 --rollback）
 """
 import argparse
@@ -669,6 +671,13 @@ def cmd_merge(args) -> None:
         src_p = Path(e["file"])
         dst_p = Path(e["archived_to"])
         size = src_p.stat().st_size
+        # 本卷分值：**必须在 move 之前读**（归档后文件已不在卷内）；读不到记「—」。
+        # 主卷分值未必等于本卷分值（同题跨卷收录时题型/赋分可不同），故单列留存。
+        try:
+            fm_src, _, _ = split_frontmatter(src_p.read_text(encoding="utf-8"))
+            score = str(fm_src.get("分值", "")).strip() or "—"
+        except Exception:
+            score = "—"
         if dst_p.exists():
             # 目标已在归档区且内容一致（幂等：gen --force 重跑后重跑 merge 的常见形态）
             # → 只删卷内重建件，不重复 move（避免 Windows 上 move 到已存在路径的异常态）
@@ -693,16 +702,32 @@ def cmd_merge(args) -> None:
         # 卷内清单（已记过该题号则不再追加，防重复执行堆行）
         vol_dir = src_p.parent.parent
         ck = vol_dir / "_重复题清单.md"
-        line = f"| {src_p.stem} | {e['id']} | {new_ids[0]} | {today} |"
+        line = f"| {src_p.stem} | {e['id']} | {new_ids[0]} | {today} | {score} |"
         if not ck.exists():
             ck.write_text(f"# 重复题清单 · {vol_dir.name}\n\n"
                           f"> 本卷以下题目与题库内权威版本重复，按「一题多卷」规则归档（位置 "
                           f"`{ARCHIVE_ROOT}/{dst_p.parent.relative_to(require_vault() / ARCHIVE_ROOT).as_posix()}`，"
                           f"即库内 Obsidian 回收站，可在回收站面板还原到原位）。\n"
-                          f"> 题库不重复存题；需要还原本卷时按「主题 id」取题。\n\n"
-                          f"| 本卷题号 | 本卷 id | 主题 id | 合并日期 |\n|---|---|---|---|\n",
+                          f"> 题库不重复存题；**还原本卷时按「本卷 id」取题**——索引对 `id` 多值的每一项"
+                          f"都指向主卷文件，别名 id 可直接用，不必绕「主题 id」。\n"
+                          f"> ⚠ 归档件在 `.trash`，**清空回收站即丢**；早期清单头部写的 `_归档/重复题/…` 路径已作废。\n\n"
+                          f"| 本卷题号 | 本卷 id | 主题 id | 合并日期 | 本卷分值 |\n|---|---|---|---|---|\n",
                           encoding="utf-8")
         existed_text = ck.read_text(encoding="utf-8")
+        # 旧四列清单（2026-10-30 前生成）→ 就地升级表头；旧行少一格渲染为空，前四列不错位。
+        # ⚠ 不能按整串精确替换：Obsidian 会自动把表格重排成列宽对齐形态（实测 40 份里 3 份
+        #   呈 `| ---- | -------- |` 变体），故按「表头行 + 紧随的分隔行」逐行改。
+        if "本卷分值" not in existed_text:
+            lines = existed_text.split("\n")
+            for i, ln in enumerate(lines):
+                if re.match(r"^\|\s*本卷题号\s*\|", ln):
+                    lines[i] = "| 本卷题号 | 本卷 id | 主题 id | 合并日期 | 本卷分值 |"
+                    if i + 1 < len(lines) and re.match(r"^\|[\s:|-]+$", lines[i + 1]):
+                        lines[i + 1] = "|---|---|---|---|---|"
+                    existed_text = "\n".join(lines)
+                    ck.write_text(existed_text, encoding="utf-8")
+                    print(f"[清单] 表头升级为五列（补「本卷分值」）：{ck}")
+                    break
         if f"| {src_p.stem} |" not in existed_text:
             with ck.open("a", encoding="utf-8") as f:
                 f.write(line + "\n")

@@ -544,6 +544,34 @@ class TestDedupe权威序(TempVaultMixin, unittest.TestCase):
         self.assertFalse(self.sim.exists(), "别名应已离开卷内")
         self.assertTrue((self.vault / ".trash" / self.sim.relative_to(self.vault)).exists(),
                         "别名未归档到 .trash")
+        # 卷内清单（2026-10-30）：须记「本卷分值」——还原时按本卷 id 取到的是主卷分值，
+        # 两者可能不同（本例主题 4 分 / 别名 1 分），故必须单列留存
+        cks = list(self.vault.rglob("_重复题清单.md"))
+        self.assertEqual(len(cks), 1, "别名卷未生成 _重复题清单.md")
+        txt = cks[0].read_text(encoding="utf-8")
+        self.assertIn("本卷分值", txt, "清单表头缺「本卷分值」列：\n%s" % txt)
+        self.assertRegex(
+            txt, r"\| 18 \| 2026测试模拟卷-18 \| 2023测试高考卷-34 \| \d{4}-\d{2}-\d{2} \| 1 \|",
+            "清单行未按**本卷**分值记录（应 1 分，非主题的 4 分）：\n%s" % txt)
+        self.assertIn("按「本卷 id」取题", txt, "清单头部未写明还原取题方式")
+
+    def test_旧四列清单表头自动升级(self):
+        """2026-10-30：清单新增「本卷分值」列。旧四列清单（含 Obsidian 自动重排的列宽形态）
+        在下次合并时应就地升级表头，**旧行保留**（少一格渲染为空，前四列不错位）。"""
+        vol = self.sim.parent.parent
+        (vol / "_重复题清单.md").write_text(
+            "# 重复题清单 · 2026测试模拟卷\n\n"
+            "| 本卷题号 | 本卷 id                     | 主题 id                     | 合并日期       |\n"
+            "| ---- | ------------------------- | ------------------------- | ---------- |\n"
+            "| 09 | 2026测试模拟卷-09 | 2023测试高考卷-33 | 2026-10-01 |\n",
+            encoding="utf-8")
+        self.run_cli("dedupe_questions.py", "--merge", str(self.gaokao),
+                     "--with", str(self.sim), "--apply", expect=0)
+        txt = (vol / "_重复题清单.md").read_text(encoding="utf-8")
+        self.assertIn("| 本卷题号 | 本卷 id | 主题 id | 合并日期 | 本卷分值 |", txt,
+                      "旧表头未升级：\n%s" % txt)
+        self.assertIn("2026测试模拟卷-09", txt, "升级表头时丢了旧记录")
+        self.assertRegex(txt, r"2026测试模拟卷-18[^\n]*\| 1 \|", "新行未记本卷分值")
 
     def test_体检报出既成倒挂(self):
         d = self.vault / "初中-2中考模拟题" / "2026测试模拟卷" / "2026测试模拟卷_选择题"
