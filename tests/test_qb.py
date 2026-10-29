@@ -12,6 +12,7 @@
 - **离线**：不依赖 MinerU / Obsidian / 网络。
 - 覆盖：字段与词表纯函数、题目文件判定、scan 全链路、go→export→backtrace 往返、脚本可用性。
 """
+import atexit
 import json
 import os
 import re
@@ -49,9 +50,35 @@ PAPERKIT_MODULES = [
     "checkup.py", "docx_kit.py",
 ]
 
-# 测试临时工作区放在 skill 内（tests/_tmp）：沙箱的系统临时目录在退出清理时会触发
-# WinError 5；放工作区内可确保可写可删（目录已入 .gitignore）。
-TMP_ROOT = HERE / "_tmp"
+# 测试临时工作区放**系统临时目录**（2026-10-30 起）：技能目录只读，不落过程垃圾，
+# 跑完即删（atexit 兜底清根目录）。
+# ⚠ 不用 tempfile.mkdtemp：它按 0o700 建目录，在受限工作区里该目录下再建子目录会被拒
+#   （PermissionError WinError 5）；os.makedirs 无此问题。目录名带 PID，多进程并发互不撞。
+TMP_ROOT = Path(tempfile.gettempdir()) / f"qb_tests_{os.getpid()}"
+
+
+def _safe_rmtree(p):
+    """删除目录；被沙箱**批量删除守卫**拦下时静默（清理失败不应把测试变成 ERROR）。"""
+    try:
+        shutil.rmtree(p, ignore_errors=True)
+    except BaseException:
+        pass
+
+
+def _safe_unlink(p):
+    """删除单文件；同上。"""
+    try:
+        Path(p).unlink(missing_ok=True)
+    except BaseException:
+        pass
+
+
+def _cleanup_tmp_root():
+    """进程退出时清掉整个临时根；被守卫拦下也不报错（系统会自行清理）。"""
+    _safe_rmtree(TMP_ROOT)
+
+
+atexit.register(_cleanup_tmp_root)
 
 # 解释器：优先当前解释器；测试脚本自身用 subprocess 跑 CLI 时也用它
 PY = sys.executable
@@ -119,7 +146,10 @@ class TempVaultMixin:
             (self.vault / d).mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
-        shutil.rmtree(self.vault, ignore_errors=True)
+        # ⚠ 沙箱的**批量删除守卫**会在累积删除量后抛异常拦住 rmtree，使测试结果变成 ERROR
+        # （实测全量 96 项曾报 33 个此类 ERROR、断言零失败）。兜住即可——残留落在系统临时
+        # 目录，由 atexit 与系统清理，不影响技能目录。
+        _safe_rmtree(self.vault)
 
     def make_question(self, 序号="01", **over):
         """用 gen_problem.py 把一条记录写进临时题库，返回题目文件路径。
@@ -133,7 +163,7 @@ class TempVaultMixin:
                            capture_output=True, text=True, encoding="utf-8",
                            env=sub_env(self.vault))
         self.assertEqual(r.returncode, 0, "gen_problem 失败：%s\n%s" % (r.stdout, r.stderr))
-        tmpjson.unlink(missing_ok=True)
+        _safe_unlink(tmpjson)      # 守卫可能拦 unlink，残留交 atexit 清
         d = (self.vault / f"{rec['学段']}-{rec['类别']}" / rec["卷名"]
              / f"{rec['卷名']}_{rec['题型']}")
         f = d / f"{rec['序号']}.md"
@@ -709,7 +739,7 @@ class TestPaperkitPure(unittest.TestCase):
         TMP_ROOT.mkdir(parents=True, exist_ok=True)
         p = TMP_ROOT / ("img_%dx%d_%s.png" % (w, h, uuid.uuid4().hex[:6]))
         Image.new("RGB", (w, h), "white").save(p)
-        self.addCleanup(lambda: p.unlink(missing_ok=True))
+        self.addCleanup(_safe_unlink, p)
         return p
 
     def test_宽高比与读不到时兜底(self):
@@ -846,7 +876,7 @@ class TestIndexGeneration(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.vault, ignore_errors=True)
+        _safe_rmtree(cls.vault)
 
     def test_命令成功(self):
         self.assertEqual(self.r.returncode, 0,
