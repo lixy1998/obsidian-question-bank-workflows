@@ -18,8 +18,16 @@ from paperkit.spec import effective_answer, short_lesson
 # 对标《关于高质量组卷的几点建议》（开花仙人掌 2026-10-29）的四条整卷要求：
 # ① 材料形式多元（文字/表格/图像）② 主观题素养各有侧重、不重复
 # ③ 通史时序顺排 ④ 整卷难度按分值合 7:2:1。四项**均为提示级**，不阻断出卷。
-DIFF_TARGET = {"易": 0.70, "中": 0.20, "难": 0.10}
-DIFF_TOL = 0.10                                   # 三档允许偏离目标 10 个百分点
+DIFF_TARGET = {"易": 0.70, "中": 0.20, "难": 0.10}   # 整卷按分值的**设计目标** 7:2:1
+DIFF_TOL = 0.10                                   # 三档允许偏离设计目标 10 个百分点
+# 真题难度**标注**基线（河南中考 2022-2026 实测，2026-10-29 统计；证据与口径见
+# references/分析基线-洛阳.md「真题难度标注基线」）。⚠ 这是「人怎么标」的分布，不是难度
+# 系数——2010-2021 那 398 题 100% 标「中」，2022 年起才分化；故用**选择题题量**比对最有分辨力。
+DIFF_BASELINE = {
+    "choice": {"易": 0.37, "中": 0.63, "难": 0.00},   # 选择题题量口径（n=100）
+    "total": {"易": 0.15, "中": 0.75, "难": 0.10},    # 整卷分值口径（300 分）
+}
+BASE_GAP = 0.15                                   # 选择题易题低于基线 15 个点才告警
 OPEN_TYPES = {"论述题", "综合探究题"}                # 开放性题型（设问梯度靠它撑）
 BOOK_ORDER = ["7上", "7下", "8上", "8下", "9上", "9下",
               "纲要上", "纲要下", "选必1", "选必2", "选必3", "选修1", "选修2"]
@@ -190,7 +198,9 @@ def _structural(recs: list) -> None:
                 print(f"        第{n1}题（{short_lesson(as_list(r1['fm'].get('课'))[0])}）"
                       f" → 第{n2}题（{short_lesson(as_list(r2['fm'].get('课'))[0])}）")
 
-    # ④ 整卷难度比例（文章：基础∶中档∶难≈7∶2∶1，按分值核算）
+    # ④ 难度结构：**双口径**——分值对设计目标（7:2:1），选择题题量对真题基线
+    #    ⚠ 分值口径必然被非选择题放大：5 道材料题各 12 分、整题只能标一档，中档天然 ≥60%。
+    #    故分值偏离降为提示，真正可执行的是「选择题基础题够不够」这条。
     ds, no_diff = Counter(), 0
     for r in recs:
         v = r["分值"]
@@ -204,12 +214,23 @@ def _structural(recs: list) -> None:
     total = sum(ds.values())                # ⚠ 分母只算三档：难度未标注的题不计入，
     if total:                               # 否则占比偏低会误报「某档不足」
         parts = " · ".join(f"{k} {ds.get(k, 0)}分({ds.get(k, 0) / total:.0%})" for k in ("易", "中", "难"))
-        print(f"难度分值 {parts}　目标 7:2:1（70:20:10）")
-        for k, tgt in DIFF_TARGET.items():
-            gap = ds.get(k, 0) / total - tgt
-            if gap <= -DIFF_TOL:
-                print(f"     ⚠ {k}题不足：{ds.get(k, 0) / total:.0%} < 目标 {tgt:.0%}（差 {-gap * 100:.0f} 个点）")
-            elif gap >= DIFF_TOL:
-                print(f"     ⚠ {k}题超配：{ds.get(k, 0) / total:.0%} > 目标 {tgt:.0%}（超 {gap * 100:.0f} 个点）")
+        print(f"难度分值 {parts}　设计目标 7:2:1")
+        dev = [(k, ds.get(k, 0) / total - tgt) for k, tgt in DIFF_TARGET.items()
+               if abs(ds.get(k, 0) / total - tgt) >= DIFF_TOL]
+        if dev:
+            print("     · 分值口径偏离设计目标：" + "、".join(f"{k} {g * 100:+.0f} 点" for k, g in dev)
+                  + "（非选择题整题只标一档会放大此差，**作参考作不了准**）")
+        if no_diff:
+            print(f"     · 另有 {no_diff} 分难度未标注，未计入比例")
+    ch = [r for r in recs if is_choice(r)]
+    if ch:
+        n = len(ch)
+        cd = Counter(str(r["fm"].get("难度") or "?").strip() for r in ch)
+        print("选择题 " + " · ".join(f"{k} {cd.get(k, 0)}({cd.get(k, 0) / n:.0%})" for k in ("易", "中", "难"))
+              + f"　真题基线（河南中考2022-2026，{n} 题≈易 {round(n * DIFF_BASELINE['choice']['易'])} 道）")
+        gap = cd.get("易", 0) / n - DIFF_BASELINE["choice"]["易"]
+        if gap <= -BASE_GAP:
+            print(f"     ⚠ 选择题基础题偏少：易 {cd.get('易', 0)} 道，按真题基线应约 "
+                  f"{round(n * DIFF_BASELINE['choice']['易'])} 道（差 {round(-gap * n)} 道）")
         if no_diff:
             print(f"     · 另有 {no_diff} 分难度未标注，未计入比例")
