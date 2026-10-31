@@ -222,6 +222,30 @@ class TestSchemaPure(unittest.TestCase):
         self.assertLess(kz, km)
         self.assertLess(km, kj)
 
+    def test_authority_inverted_只看前三项(self):
+        """2026-10-31 定：判「谁更权威」只比 (类别, 考试类型, 年份)；
+        第 4 位卷名与第 5 位题号只作稳定排序，不得据此判倒挂。"""
+        inv = self.s.authority_inverted
+        self.assertFalse(inv((1, 0, 2024, "2024A二模", "30"), (1, 0, 2024, "2024B二模", "05")),
+                         "同年同类按卷名判出了倒挂")
+        self.assertFalse(inv((1, 0, 2024, "x", "99"), (1, 0, 2024, "y", "01")),
+                         "同年同类按题号判出了倒挂")
+        self.assertFalse(inv((1, 1, 2024, "x", "01"), (1, 0, 2024, "y", "99")),
+                         "期末档不应比一模档更权威")
+        self.assertTrue(inv((0, 9, 2020, "", "99"), (1, 9, 2021, "y", "01")), "真题应更权威")
+        self.assertTrue(inv((1, 1, 2023, "x", "09"), (1, 1, 2024, "y", "01")), "年份早者更权威")
+
+    def test_四模五模算模拟档且卷名从path兜底(self):
+        """`AUTHORITY_PATTERNS` 补「四模/五模」（2026-10-31）：未命中会落默认档 9，
+        被压成比「二模」更不权威；同时验证卷名可从 path 兜底（frontmatter 无该字段）。"""
+        for vol in ("2024郑州外国语四模", "2025某校五模"):
+            k = self.s.authority_key({"年份": 2024, "卷名": vol}, None)
+            self.assertEqual(k[1], 0, "%s 未归入一模档：%s" % (vol, k))
+        k = self.s.authority_key({}, "x/初中-2中考模拟题/2024郑州外国语四模/"
+                                     "2024郑州外国语四模_选择题/01.md")
+        self.assertEqual(k[1], 0, "卷名未从 path 兜底：%s" % (k,))
+        self.assertEqual(k[3], "2024郑州外国语四模", "卷名兜底取错目录：%s" % (k,))
+
     def test_source_pairs_成对平铺(self):
         rec = {"来源": ["A卷", "真题", "B卷", "模拟卷"]}
         self.assertEqual(self.s.source_pairs(rec), [("A卷", "真题"), ("B卷", "模拟卷")])
@@ -616,23 +640,52 @@ class TestDedupe权威序(TempVaultMixin, unittest.TestCase):
         r = self.run_cli("dedupe_questions.py", "--check-authority", expect=0)
         self.assertIn("权威序倒挂 1 处", r.stdout, "体检未报出：\n%s" % r.stdout[-800:])
 
-    def test_同级同年按卷名而非题号判权威序(self):
-        """2026-10-31 修：题目 frontmatter **没有「卷名」字段**（卷名只存在于目录名），
-        `--merge` 传的是 `{**fm}` ⇒ authority_key 取到的卷名恒为空 ⇒ 键第 4 位恒 `''`，
-        「同级同年」的权威序实际**退化为按题号排**（题号小者被判更权威）。
+    def test_同级按考试类型判权威序_四模算模拟档(self):
+        """2026-10-31 修两处：① 卷名由 `path` 兜底（frontmatter 无「卷名」字段）；
+        ② `AUTHORITY_PATTERNS` 补「四模/五模」——它们属一模档(0)，优先于期末档(1)。
 
-        本例两卷同为「中考模拟 / 期末 / 2026 年」，仅卷名与题号方向相反：
-        按卷名字典序 `2026A卷期末` 优于 `2026B卷期末`（别名更权威 → 应阻断倒挂）；
-        卷名失效时只能比题号（主题 05 ＜ 别名 30）→ 放行错误合并。
+        本例两卷同为「中考模拟 / 2026 年」，仅考试类型不同：主题＝期末(sub=1)、序号 05，
+        别名＝四模(sub=0)、序号 30。卷名生效时别名更权威（前三位 1,0,2026 ＜ 1,1,2026）
+        ⇒ 应阻断倒挂；若卷名仍取空（sub 恒 9），主题 (1,9,2026) 反而「更权威」⇒ 放行。
+        四模若未进模式表，别名落 sub=9，同样会被放行。
         """
-        theme = self.make_question(序号="05", 卷名="2026B卷期末",
-                                   来源=["2026B卷期末", "模拟卷"], 年份=2026)
-        alias = self.make_question(序号="30", 卷名="2026A卷期末",
-                                   来源=["2026A卷期末", "模拟卷"], 年份=2026)
+        theme = self.make_question(序号="05", 卷名="2024测试期末",
+                                   来源=["2024测试期末", "模拟卷"], 年份=2026)
+        alias = self.make_question(序号="30", 卷名="2024测试四模",
+                                   来源=["2024测试四模", "模拟卷"], 年份=2026)
         r = self.run_cli("dedupe_questions.py", "--merge", str(theme),
                          "--with", str(alias), "--apply", expect=1)
-        self.assertIn("权威序倒挂", r.stdout, "卷名未参与权威序判定：\n%s" % r.stdout[-800:])
+        self.assertIn("权威序倒挂", r.stdout, "卷名/四模未参与权威序判定：\n%s" % r.stdout[-800:])
         self.assertTrue(alias.exists(), "被拒后别名文件不得被移动")
+
+    def test_同年同类不同卷不判倒挂(self):
+        """2026-10-31 定：判倒挂**只比 (类别, 考试类型, 年份) 前三项**，卷名与题号仅作稳定排序。
+
+        两所学校的同年级二模没有客观优劣——按卷名字典序判优劣只会得到随机结论
+        （实测真实库 21 条倒挂里 9 条属此类噪声）。故同年同类一律放行，主题由用户指定。
+        """
+        theme = self.make_question(序号="05", 卷名="2026B卷二模",
+                                   来源=["2026B卷二模", "模拟卷"], 年份=2026)
+        alias = self.make_question(序号="30", 卷名="2026A卷二模",
+                                   来源=["2026A卷二模", "模拟卷"], 年份=2026)
+        r = self.run_cli("dedupe_questions.py", "--merge", str(theme),
+                         "--with", str(alias), "--apply", expect=0)
+        self.assertNotIn("权威序倒挂", r.stdout, "同年同类被误判倒挂：\n%s" % r.stdout[-800:])
+        self.assertFalse(alias.exists(), "应已合并归档")
+
+    def test_体检不比卷名题号(self):
+        """体检侧同口径：同年同类的既成合并**不报**倒挂（只报前三项明确更权威者）。"""
+        d = self.vault / "初中-2中考模拟题" / "2026B卷二模" / "2026B卷二模_选择题"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "05.md").write_text("---\nid: [2026B卷二模-05, 2026A卷二模-30]\n"
+                                 "题型: 选择题\n年份: 2026\n---\n\n题干\n", encoding="utf-8")
+        a = (self.vault / ".trash" / "初中-2中考模拟题" / "2026A卷二模"
+             / "2026A卷二模_选择题")
+        a.mkdir(parents=True, exist_ok=True)
+        (a / "30.md").write_text("---\nid: [2026A卷二模-30]\n题型: 选择题\n年份: 2026\n"
+                                 "---\n\n题干\n", encoding="utf-8")
+        r = self.run_cli("dedupe_questions.py", "--check-authority", expect=0)
+        self.assertIn("通过", r.stdout, "同年同类被报成倒挂：\n%s" % r.stdout[-800:])
 
     def test_回滚删清单行_CRLF且已补分值列(self):
         """2026-10-31 修：旧实现用 `line + "\\n"` 整行替换，清单一旦被改就**静默**失配——

@@ -42,9 +42,9 @@ from pathlib import Path
 from qb_bootstrap import bootstrap, require_vault
 from qb_schema import (ARCHIVE_ROOT, DEDUPE_LOG_DIR,
                        LEGACY_ARCHIVE_ROOTS, _yaml_scalar, as_list,
-                       authority_key, dump_yaml, is_question_file,
-                       norm_for_dedupe, source_pairs, split_frontmatter,
-                       stage_roots, strip_comments)
+                       authority_inverted, authority_key, dump_yaml,
+                       is_question_file, norm_for_dedupe, source_pairs,
+                       split_frontmatter, stage_roots, strip_comments)
 
 # 合并时取并集的字段（主题在前）
 UNION_FIELDS = ["册别", "单元", "课", "小节", "知识点",
@@ -368,9 +368,12 @@ def iter_archived() -> list:
 
 
 def find_inverted() -> list:
-    """全库体检：主卷权威序**低于**其某个别名（别名更权威）→ 倒挂清单（只读）。
+    """全库体检：主卷权威序**明确低于**其某个别名（别名更权威）→ 倒挂清单（只读）。
 
-    判据用 `authority_key`（真题 > 模拟 > 阶段测试；同级年份早者优先）。
+    判据用 `authority_inverted`（真题 > 模拟 > 阶段测试；同级年份早者优先）——
+    **只比 (类别, 考试类型细分, 年份) 前三位**：同年同类不比卷名/题号，
+    否则「两所学校的二模」这类无客观优劣的组合会被卷名字典序判出假倒挂
+    （2026-10-31 修，实测 9/21 条此类噪声）。
     别名 id 在归档区找不到对应文件时跳过（无法判定其类别，不臆测）。
     """
     arch = {}
@@ -395,7 +398,7 @@ def find_inverted() -> list:
                     continue
                 ap, afm = hit
                 ak = authority_key({**afm, "序号": ap.stem}, ap)
-                if ak < tk:
+                if authority_inverted(ak, tk):
                     rows.append({"theme": p, "theme_key": tk, "alias_id": a,
                                  "alias_path": ap, "alias_key": ak})
     return rows
@@ -415,10 +418,13 @@ def cmd_check_authority(args) -> None:
     if not rows:
         print("✅ 权威序体检通过：全库无「别名比主卷更权威」的倒挂合并")
         return
-    print(f"⚠ 权威序倒挂 {len(rows)} 处 —— 违反「真题 > 模拟 > 阶段测试，同级年份早者优先」\n")
+    print(f"⚠ 权威序倒挂 {len(rows)} 处 —— 违反「真题 > 模拟 > 阶段测试，同级年份早者优先」"
+          f"（判据只比 类别/考试类型/年份；同年同类不比卷名与题号）\n")
     for r in rows:
-        print(f"· 主卷 {r['theme_key']}  {r['theme'].relative_to(require_vault())}")
-        print(f"  别名 {r['alias_key']}  {r['alias_id']}"
+        tk, ak = r["theme_key"], r["alias_key"]
+        print(f"· 主卷 {tk[:3]}（{tk[3] or '-'} 第 {tk[4]} 题）"
+              f"  {r['theme'].relative_to(require_vault())}")
+        print(f"  别名 {ak[:3]}（{ak[3] or '-'} 第 {ak[4]} 题）  {r['alias_id']}"
               f"（归档于 {r['alias_path'].relative_to(require_vault())}）")
         print(f"  → 应以别名为主卷。修正步骤：① 把主卷 frontmatter 还原为合并前快照"
               f"（见 .dedupe 日志 theme_frontmatter_before）；② 还原归档件到原位；")
@@ -533,7 +539,7 @@ def cmd_merge(args) -> None:
         # 权威序校验：主题应不劣于别名
         tk = authority_key({**theme_fm, "序号": seq}, theme_path)
         ak = authority_key({**a_fm, "序号": ap.stem}, ap)
-        if ak < tk and a_primary not in theme_ids:
+        if authority_inverted(ak, tk) and a_primary not in theme_ids:
             # 仅对「要真正追加」的别名阻断；幂等清理项不改变合并方向，交给 --check-authority 报
             inverted.append((ap, a_primary, ak, tk))
         if a_primary in theme_ids:
@@ -574,11 +580,14 @@ def cmd_merge(args) -> None:
     # 权威序倒挂 → 写盘前硬阻断（dry-run 同样拒绝，避免误以为「预览通过」）
     if inverted:
         print("\n[权威序倒挂] 以下别名比主题更权威 —— 违反"
-              "「真题 > 模拟 > 阶段测试，同级年份早者优先」：")
+              "「真题 > 模拟 > 阶段测试，同级年份早者优先」"
+              "（判据只比 类别/考试类型/年份 三项）：")
         for ap, aid, ak, tk in inverted:
-            print(f"  · 别名 {aid}  {ak} ＜ 主题 {tk}")
+            print(f"  · 别名 {aid}  {ak[:3]} ＜ 主题 {tk[:3]}"
+                  f"（卷名 {ak[3] or '-'}｜{tk[3] or '-'}，题号 {ak[4]}｜{tk[4]}）")
             print(f"    {ap}")
-        best = inverted[0][0]
+        # 多个倒挂别名时取权威序**最高**者（只比前三项）作建议主题，不取「第一个」
+        best = min(inverted, key=lambda x: x[2][:3])[0]
         print("\n[正确做法] 应改用更权威者作主题"
               "（先把现主题 frontmatter 还原为合并前快照，再执行）：")
         print(f'  python dedupe_questions.py --merge "{best}" '

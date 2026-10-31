@@ -621,7 +621,10 @@ DEDUPE_LOG_DIR = ".dedupe"        # 合并日志目录（vault 根下）
 AUTHORITY_CATEGORY = {"1中考真题": 0, "1高考真题": 0,
                       "2中考模拟题": 1, "2高考模拟题": 1, "3阶段测试": 2}
 # 二级：阶段测试卷名细分（期末早于期中/月考）
-AUTHORITY_PATTERNS = [(0, r"一模|二模|三模|联考|模拟"), (1, r"期末"), (2, r"期中|月考|单元|阶段")]
+# 「四模/五模」须显式列出（2026-10-31 修）：原模式只有 一模/二模/三模，
+# 「2024郑州外国语四模」等卷名落到默认档 9（最次级），会被判得比「二模」还不权威。
+AUTHORITY_PATTERNS = [(0, r"一模|二模|三模|四模|五模|联考|模拟"), (1, r"期末"),
+                      (2, r"期中|月考|单元|阶段")]
 
 
 def is_question_file(p) -> bool:
@@ -687,6 +690,22 @@ def authority_key(rec: dict, path=None) -> tuple:
     except (TypeError, ValueError):
         year = 9999
     return (cat, sub, year, vol, str(rec.get("序号", "")))
+
+
+# 判「谁更权威」只看前三位：类别 > 考试类型细分 > 年份
+AUTHORITY_JUDGE_LEN = 3
+
+
+def authority_inverted(alias_key: tuple, theme_key: tuple) -> bool:
+    """别名是否**明确**比主题更权威（＝倒挂，应阻断/报出）。
+
+    只比前 `AUTHORITY_JUDGE_LEN` 位（类别／考试类型细分／年份），**不比第 4 位卷名、
+    第 5 位题号**——这两位只为让排序确定（stable），不承载权威性：同年同类的两卷
+    （例：两所学校的二模）没有客观优劣，按卷名字典序或题号判优劣只能得到随机结论
+    （2026-10-31 实测：21 条倒挂报告里 9 条属此类噪声）。故同年同类一律**不判倒挂**，
+    主题由用户指定。
+    """
+    return tuple(alias_key[:AUTHORITY_JUDGE_LEN]) < tuple(theme_key[:AUTHORITY_JUDGE_LEN])
 
 
 def norm_for_dedupe(s: str) -> str:
