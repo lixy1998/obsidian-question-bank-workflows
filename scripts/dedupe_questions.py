@@ -229,9 +229,10 @@ def find_groups(items: list, override: float = None) -> list:
         if len(idxs) < 2:
             continue
         members = [items[i] for i in idxs]
-        members.sort(key=lambda it: authority_key({**it["fm"], "卷名": it["fm"].get("卷名") or it["rel"].parts[1],
-                                                   "年份": it["fm"].get("年份")},
-                                                  it["path"]))
+        # 权威序排序键：卷名由 authority_key 内部按 path 兜底（frontmatter 无「卷名」字段），
+        # 此处勿再手工补 `rec["卷名"]`——早期补丁只覆盖了本处，--merge 与 --check-authority 漏补，
+        # 导致卷名一级恒空、权威序退化为按题号排（2026-10-31 修）。
+        members.sort(key=lambda it: authority_key(it["fm"], it["path"]))
         # 判定级别（取组内最高强度）
         fp_full = {m["fp_full"] for m in members}
         if len(fp_full) == 1:
@@ -804,6 +805,51 @@ def resolve_archived(raw_path) -> Path:
     return p
 
 
+def _row_cells(line: str) -> list:
+    """把一行 Markdown 表格拆成去空白的单元格列表（首尾竖线不计）。"""
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _drop_checklist_line(ck, line: str, alias_id: str = "") -> bool:
+    """从 `_重复题清单.md` 删掉一条记录行；命中返回 True，未命中返回 False（由调用方告警）。
+
+    为什么不能整行字符串替换（2026-10-31 修）：旧实现 `txt.replace(line + "\\n", "")`
+    对清单的**任何**后续变动都静默失配——
+      ① 清单新增第五列「本卷分值」（2026-10-30）：旧日志记的 line 仍是四列，
+         与现在的「四列＋分值」行不相等（实测全库 `.dedupe/*.json` 119 条，80 条因此失配）；
+      ② Obsidian 打开表格会按列宽重排空格，行内空白与记录时不同；
+      ③ 行尾 CRLF／LF 混用、末行无换行时，`line + "\\n"` 同样不成立。
+    现改为**按单元格前缀比较**（目标行 cells 是文件行 cells 的前缀即算同一行，多出的分值列
+    不影响），再退化为按「本卷 id」（第 2 列）定位；写回保持原文件换行风格与 BOM。
+    """
+    p = Path(ck)
+    raw = p.read_bytes()
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    text = raw.decode("utf-8-sig")
+    newline = "\r\n" if b"\r\n" in raw else "\n"
+    rows = text.splitlines()
+    want = _row_cells(line)
+    idx = None
+    if want:
+        for i, row in enumerate(rows):
+            got = _row_cells(row)
+            if got and len(got) >= len(want) and got[:len(want)] == want:
+                idx = i
+                break
+    if idx is None and alias_id:
+        for i, row in enumerate(rows):
+            got = _row_cells(row)
+            if len(got) >= 2 and got[1] == alias_id:
+                idx = i
+                break
+    if idx is None:
+        return False
+    del rows[idx]
+    text = newline.join(rows) + (newline if text.endswith(("\n", "\r")) else "")
+    p.write_bytes((b"\xef\xbb\xbf" if bom else b"") + text.encode("utf-8"))
+    return True
+
+
 def cmd_rollback(args) -> None:
     log = json.loads(Path(args.rollback).read_text(encoding="utf-8"))
     entries = log.get("entries", [])
@@ -833,8 +879,10 @@ def cmd_rollback(args) -> None:
                 print(f"[还原] {dst}")
             ck, line = a.get("checklist_file"), a.get("checklist_line")
             if ck and Path(ck).exists() and line:
-                txt = Path(ck).read_text(encoding="utf-8").replace(line + "\n", "")
-                Path(ck).write_text(txt, encoding="utf-8")
+                if _drop_checklist_line(ck, line, a.get("id", "")):
+                    print(f"[清单] 已删记录行：{ck}")
+                else:
+                    print(f"[警告] 清单未找到对应行，需人工核对：{ck}\n        期望行：{line}")
     print("✅ 回滚完成；请重跑 scan_questions.py 复核")
 
 

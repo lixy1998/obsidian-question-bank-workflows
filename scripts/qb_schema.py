@@ -651,7 +651,13 @@ def authority_key(rec: dict, path=None) -> tuple:
 
     序：中/高考真题(0) > 中/高考模拟(1) > 阶段测试(2)；同级按考试类型细分
     （模拟：一模/二模/联考 0 > 期末 1 > 期中/月考 2）；再按**年份早者优先**；最后按卷名、题号稳定排序。
-    `path` 传入题目文件路径时按路径推断类别，否则回退 rec["类别"]。
+    `path` 传入题目文件路径时按路径推断类别**与卷名**，否则回退 rec["类别"]／rec["卷名"]。
+
+    ⚠ **卷名必须从 path 兜底**（2026-10-31 修）：题目 frontmatter **没有「卷名」字段**——卷名只
+    存在于目录名（`{卷名}/{卷名}_{题型}/{序号}.md`）。此前各调用点传 `{**fm}` 时 `rec["卷名"]`
+    恒缺失，vol 恒为 `""` ⇒ 键的二级「考试类型细分」与第四位「卷名」双双失效，
+    「同级同年」的权威序实际**退化为按题号排**（题号小的被判更权威，可造成误判倒挂/放过真倒挂）。
+    故统一在本函数内兜底，调用方不必（也不该）各自补 `rec["卷名"]`。
     """
     cat = None
     if path is not None:
@@ -664,7 +670,13 @@ def authority_key(rec: dict, path=None) -> tuple:
                 break
     if cat is None:
         cat = AUTHORITY_CATEGORY.get(str(rec.get("类别", "")), 9)
-    vol = str(rec.get("卷名", ""))
+    vol = str(rec.get("卷名") or "")
+    if not vol and path is not None:
+        # 题目文件定位于 {卷名}/{卷名}_{题型}/NN.md ⇒ 题型目录的上一级即卷名。
+        # 判定用「父目录名以上级目录名开头」，兼容旧结构与归档区（.trash/<相对路径>）。
+        p = Path(path)
+        parent, grand = p.parent, p.parent.parent
+        vol = grand.name if grand.name and parent.name.startswith(grand.name) else parent.name
     sub = 9
     for lvl, pat in AUTHORITY_PATTERNS:
         if re.search(pat, vol):

@@ -616,6 +616,94 @@ class TestDedupe权威序(TempVaultMixin, unittest.TestCase):
         r = self.run_cli("dedupe_questions.py", "--check-authority", expect=0)
         self.assertIn("权威序倒挂 1 处", r.stdout, "体检未报出：\n%s" % r.stdout[-800:])
 
+    def test_同级同年按卷名而非题号判权威序(self):
+        """2026-10-31 修：题目 frontmatter **没有「卷名」字段**（卷名只存在于目录名），
+        `--merge` 传的是 `{**fm}` ⇒ authority_key 取到的卷名恒为空 ⇒ 键第 4 位恒 `''`，
+        「同级同年」的权威序实际**退化为按题号排**（题号小者被判更权威）。
+
+        本例两卷同为「中考模拟 / 期末 / 2026 年」，仅卷名与题号方向相反：
+        按卷名字典序 `2026A卷期末` 优于 `2026B卷期末`（别名更权威 → 应阻断倒挂）；
+        卷名失效时只能比题号（主题 05 ＜ 别名 30）→ 放行错误合并。
+        """
+        theme = self.make_question(序号="05", 卷名="2026B卷期末",
+                                   来源=["2026B卷期末", "模拟卷"], 年份=2026)
+        alias = self.make_question(序号="30", 卷名="2026A卷期末",
+                                   来源=["2026A卷期末", "模拟卷"], 年份=2026)
+        r = self.run_cli("dedupe_questions.py", "--merge", str(theme),
+                         "--with", str(alias), "--apply", expect=1)
+        self.assertIn("权威序倒挂", r.stdout, "卷名未参与权威序判定：\n%s" % r.stdout[-800:])
+        self.assertTrue(alias.exists(), "被拒后别名文件不得被移动")
+
+    def test_回滚删清单行_CRLF且已补分值列(self):
+        """2026-10-31 修：旧实现用 `line + "\\n"` 整行替换，清单一旦被改就**静默**失配——
+        ① 2026-10-30 起清单加第五列「本卷分值」，旧日志记的四列行不再逐字出现
+           （实测全库 `.dedupe/*.json` 119 条记录，80 条因此失配）；② Obsidian 会按列宽重排
+           表格空格；③ 行尾 CRLF 与 `line + "\\n"` 硬匹配不成立。
+        本测构造「CRLF 清单 + 已补分值列 + 列宽重排 + 日志仍记四列」，要求回滚仍能删掉该行、
+        保留表头、并保持原有 CRLF 行尾。
+        """
+        self.run_cli("dedupe_questions.py", "--merge", str(self.gaokao),
+                     "--with", str(self.sim), "--apply", expect=0)
+        ck = next(self.vault.rglob("_重复题清单.md"))
+        rows = ck.read_text(encoding="utf-8").splitlines()
+        out = []
+        for r in rows:
+            if r.startswith("| 18 |"):
+                r = ("| 18   | 2026测试模拟卷-18        | 2023测试高考卷-34        "
+                     "| 2026-10-01 | 1 |")
+            out.append(r)
+        ck.write_bytes(("\r\n".join(out) + "\r\n").encode("utf-8"))
+        log_path = next((self.vault / ".dedupe").glob("*.json"))
+        log = json.loads(log_path.read_text(encoding="utf-8"))
+        for e in log["entries"]:
+            for a in e["aliases"]:
+                if a.get("checklist_line"):
+                    a["checklist_line"] = a["checklist_line"].rsplit("|", 2)[0].rstrip() + " |"
+        log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        r = self.run_cli("dedupe_questions.py", "--rollback", str(log_path), "--apply", expect=0)
+        txt = ck.read_bytes().decode("utf-8")
+        self.assertNotIn("| 18", txt, "CRLF 清单未删掉记录行：\n%s" % txt)
+        self.assertIn("本卷分值", txt, "删行时把表头也删了")
+        self.assertNotIn("\n", txt.replace("\r\n", ""), "写回后行尾不再是 CRLF")
+        self.assertIn("[清单] 已删记录行", r.stdout)
+        self.assertTrue(self.sim.exists(), "别名文件未还原")
+
+    def test_回滚清单行找不到时必须告警(self):
+        """删行失败不得静默：日志行与「本卷 id」都对不上时须打印 [警告]，交人工核对。
+
+        （仅日志行失配、id 仍对得上时属正常兜底，见 `test_回滚按本卷id兜底删行`。）
+        """
+        self.run_cli("dedupe_questions.py", "--merge", str(self.gaokao),
+                     "--with", str(self.sim), "--apply", expect=0)
+        log_path = next((self.vault / ".dedupe").glob("*.json"))
+        log = json.loads(log_path.read_text(encoding="utf-8"))
+        for e in log["entries"]:
+            for a in e["aliases"]:
+                if a.get("checklist_line"):
+                    a["checklist_line"] = "| 99 | 不存在的卷-99 | x | 2000-01-01 | 1 |"
+                    a["id"] = "不存在的卷-99"
+        log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+        r = self.run_cli("dedupe_questions.py", "--rollback", str(log_path), "--apply", expect=0)
+        self.assertIn("[警告] 清单未找到对应行", r.stdout, "删行失败被静默：\n%s" % r.stdout[-800:])
+
+    def test_回滚按本卷id兜底删行(self):
+        """日志行被改乱（如旧四列 vs 新五列）时，退化为按「本卷 id」（第 2 列）定位并删行。"""
+        self.run_cli("dedupe_questions.py", "--merge", str(self.gaokao),
+                     "--with", str(self.sim), "--apply", expect=0)
+        ck = next(self.vault.rglob("_重复题清单.md"))
+        log_path = next((self.vault / ".dedupe").glob("*.json"))
+        log = json.loads(log_path.read_text(encoding="utf-8"))
+        for e in log["entries"]:
+            for a in e["aliases"]:
+                if a.get("checklist_line"):
+                    a["checklist_line"] = "| 99 | 已失真的行 | x | 2000-01-01 | 1 |"
+        log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+        r = self.run_cli("dedupe_questions.py", "--rollback", str(log_path), "--apply", expect=0)
+        self.assertIn("[清单] 已删记录行", r.stdout, "id 兜底未生效：\n%s" % r.stdout[-800:])
+        self.assertNotIn("2026测试模拟卷-18", ck.read_text(encoding="utf-8"),
+                         "按 id 兜底未删掉记录行")
+
 
 class Test卷结构_题号口径(TempVaultMixin, unittest.TestCase):
     """序号＝原卷面题号（v1.29.0）：合卷跳号不判不合规；跨题型重号仍判不合规。"""
