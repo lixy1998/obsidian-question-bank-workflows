@@ -28,6 +28,9 @@
     非可靠备份）；别名卷目录追加 `_重复题清单.md`（本卷题号/本卷 id/主题 id/合并日期/本卷分值——
     还原时**按本卷 id 取题**，索引对 id 多值每项都指向主卷文件）
   · 日志写入 {vault}/.dedupe/YYYY-MM-DD.json（含主题 frontmatter 快照，可 --rollback）
+  · **不改任何其他笔记的链接**：引用别名题的笔记（卷目录下 `_组卷清单.md` 最常见）会静默断链，
+    故预览阶段内置**引用预检**（列出受影响行，dry-run 也打印）；合并后跑
+    `check_note_links.py --fix --apply` 改指主卷（2026-11-05 定）
 """
 import argparse
 import json
@@ -501,6 +504,71 @@ def unique_image_name(theme_dir: Path, theme_seq: str, src_name: str, taken: set
     return f"{theme_seq}_{n}{ext}"
 
 
+def preview_refs(theme_path: Path, alias_files, alias_ids) -> int:
+    """合并前**引用影响预检**（2026-11-05 定）。
+
+    别名题归档后，任何按原路径写的 wikilink 都会静默变灰 —— 最典型的是卷目录下的
+    `_组卷清单.md`：它按 `[[{类别}/{卷名}/{卷名}_{题型}/{序号}|{id}]]` 写死路径，
+    合并后路径失效、Obsidian 只把链接染灰，**不报错**（"静默断链"）。
+
+    本函数只**报告**，不改盘；修链走 `check_note_links.py --fix --apply`（可 --rollback）。
+    返回命中条数；预检本身不可用时返回 -1（不阻断合并）。
+    """
+    try:
+        import check_note_links as cnl
+    except Exception as e:                      # 索引依赖不可用不应阻断合并
+        print(f"[引用预检] 跳过（{e}）")
+        return -1
+    vault = require_vault()
+    try:
+        id2path, rel2ids, hits = cnl.build_index()
+        theme_rel = theme_path.relative_to(vault).with_suffix("").as_posix()
+        archive_rels = set()
+        for ap in alias_files:
+            try:
+                archive_rels.add(Path(ap).relative_to(vault).with_suffix("").as_posix())
+            except ValueError:
+                archive_rels.add(Path(ap).with_suffix("").as_posix())
+        want_ids, want_paths = set(), set(archive_rels)
+        for i in alias_ids:
+            if not i:
+                continue
+            want_ids.add(i)
+            for _arch, rel in hits.get(i, []):
+                if rel != theme_rel:            # 指向主卷的引用不受影响，不报
+                    want_paths.add(rel)
+                want_ids.update(rel2ids.get(rel, []))
+        want_ids.discard("")
+        out = []
+        for d in cnl.default_note_dirs():
+            for f in sorted((vault / d).rglob("*.md")):
+                try:
+                    text = cnl.read_text_raw(f)
+                except Exception:
+                    continue
+                relf = f.relative_to(vault).as_posix()
+                for ln, line in enumerate(text.splitlines(), 1):
+                    for m in cnl.LINK_RE.finditer(line):
+                        path, _a, _s = cnl.split_link(m.group(1))
+                        rel = path[:-3] if path.endswith(".md") else path
+                        if rel == theme_rel:
+                            continue                # 主卷链接不失效
+                        cand = set(cnl.derive_old_ids(rel)) | set(rel2ids.get(rel, []))
+                        if rel in want_paths or (cand & want_ids):
+                            out.append((relf, ln, m.group(0)))
+    except Exception as e:
+        print(f"[引用预检] 跳过（{e}）")
+        return -1
+    if not out:
+        print("[引用预检] ✓ 无笔记引用待归档题，合并不会产生断链")
+        return 0
+    print(f"[引用预检] ⚠ {len(out)} 处笔记引用待归档题，合并后这些链接会失效（Obsidian 只染灰、不报错）：")
+    for relf, ln, link in out:
+        print(f"  {relf} 行 {ln}：{link}")
+    print("  → 合并后执行：python scripts/check_note_links.py --fix --apply（可 --rollback）")
+    return len(out)
+
+
 def cmd_merge(args) -> None:
     theme_path = Path(args.merge)
     alias_paths = [Path(s.strip()) for s in (args.with_ or "").split(",") if s.strip()]
@@ -633,6 +701,7 @@ def cmd_merge(args) -> None:
     for e in entries:
         print(f"别名：{e['file']}")
         print(f"  → 归档至 {e['archived_to']}")
+    preview_refs(theme_path, [Path(e["file"]) for e in entries], [e["id"] for e in entries])
     if not args.apply:
         print("\n[dry-run] 加 --apply 执行；执行前请确认权威序与差异说明无误。")
         return

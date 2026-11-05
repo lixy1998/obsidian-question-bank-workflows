@@ -15,9 +15,21 @@
 的合并意图一致 —— 旧题的「身份」并未消失，它作为 id 被吸收进主卷的 id 多值数组，
 所以正确做法不是把引用引到归档区，而是改指吸收它的那个主卷文件。
 
+默认扫描范围（2026-11-05 修订）
+------------------------------
+`3-试题研究/` **＋ 全库所有含 `_组卷清单.md` 的卷目录**。原先只扫前者，而组卷清单
+恰恰是最容易被合并打断的引用源（它按题目原路径写 `[[{类别}/{卷名}/{卷名}_{题型}/{序号}\\|{id}]]`），
+造成 `--cite` 报「无引用」的**假阴性**，合并后清单静默断链无人知。默认范围必须覆盖组卷清单。
+
+报告口径（2026-11-05 增补）
+--------------------------
+本脚本只守**题目引用**。裸名链接（`[[某研究笔记]]`、`[[Pasted image xxx.png]]`）不带路径，
+目标在全库唯一命中即判 `LINK_OK`，**只计数不报告**——它们本就不在题目索引里，判「断链」
+纯属噪音；真正要看的是「断链可修（FIX）」与「无法定位（BROKEN）」两类。
+
 用法
 ----
-  python check_note_links.py                        # 巡检 3-试题研究/（只读，不改盘）
+  python check_note_links.py                        # 巡检默认范围（只读，不改盘）
   python check_note_links.py --dir 3-试题研究 --dir 1-MoC-索引
   python check_note_links.py --file <笔记>           # 直接指定笔记（绝对或相对 vault）
   python check_note_links.py --fix                  # 只输出修复计划，仍不改盘
@@ -44,7 +56,36 @@ from qb_schema import ARCHIVE_ROOT, TYPES, is_question_file, split_frontmatter  
 
 ARCHIVE_DIR = ARCHIVE_ROOT          # 单一来源：qb_schema（点开头＝Obsidian 不索引该目录）
 NOTE_DIR_DEFAULT = "3-试题研究"
+CHECKLIST_NAME = "_组卷清单.md"      # 组卷清单是合并断链的**首要受害文件**（见模块 docstring）
 LOG_DIR = ".linkfix"
+
+
+def default_note_dirs():
+    """默认扫描目录（相对 vault）：研究笔记 ＋ 各卷目录里的组卷清单。
+
+    组卷清单里的链接写作 `[[{类别}/{卷名}/{卷名}_{题型}/{序号}|{id}]]`，别名题一归档
+    该路径即失效。**默认范围不覆盖它 ⇒ `--cite` 假阴性 ⇒ 合并后静默断链**，
+    故此处按 `<学段>/<卷名>/_组卷清单.md` 自动发现，不写死学段名。
+    """
+    vault = require_vault()
+    dirs = [NOTE_DIR_DEFAULT] if (vault / NOTE_DIR_DEFAULT).is_dir() else []
+    for ck in sorted(vault.rglob(CHECKLIST_NAME)):
+        relp = ck.parent.relative_to(vault)
+        if any(part.startswith(".") for part in relp.parts):   # 回收站等点目录不扫
+            continue
+        rel = relp.as_posix()
+        if rel and rel not in dirs:
+            dirs.append(rel)
+    return dirs
+
+
+def resolve_scan_dirs(args):
+    """实际扫描目录：--file 且未给 --dir → 空；给了 --dir → 照用；否则走默认范围。"""
+    if args.dir:
+        return list(args.dir)
+    if getattr(args, "file", None):
+        return []
+    return default_note_dirs()
 
 LINK_RE = re.compile(r"\[\[([^\[\]]+?)\]\]")
 VOL_SUFFIX_RE = re.compile(r"_(" + "|".join(map(re.escape, TYPES)) + r")$")
@@ -127,6 +168,49 @@ def build_index():
     return id2path, rel2ids, hits
 
 
+_NAME_INDEX = None
+MEDIA_EXT = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp",
+             ".pdf", ".docx", ".xlsx", ".pptx", ".canvas", ".mp3", ".mp4", ".wav")
+
+
+def name_index():
+    """全库文件名 → 相对路径列表（惰性构建，供裸名链接解析用；跳过点目录）。"""
+    global _NAME_INDEX
+    if _NAME_INDEX is None:
+        vault = require_vault()
+        idx = defaultdict(list)
+        for p in vault.rglob("*"):
+            if not p.is_file():
+                continue
+            relp = p.relative_to(vault)
+            if any(part.startswith(".") for part in relp.parts):
+                continue
+            idx[p.name].append(relp.as_posix())
+        _NAME_INDEX = idx
+    return _NAME_INDEX
+
+
+def resolve_by_name(path_part: str):
+    """Obsidian 式短链接解析：文件名在全库唯一命中 ⇒ 链接有效。
+
+    **只对裸名链接生效**：`[[7上第1单元史前时期-考查方向分析]]`（研究笔记互链）、
+    `[[Pasted image 20260924104359.png]]`（裸附件名）。它们的共性是**不带路径**——
+    而脚本早先只按 `vault/完整相对路径` 判存在，一律落到「断链待查」，与是否题目文件
+    无关，纯属噪音（2026-11-05 定）。
+
+    带路径而失效的链接**不走**此路：那正是「一题多卷」合并造成的真断链，须由 id
+    反推改指主卷，不能被同名文件兜底掩盖。多命中（同名歧义）不猜，交回原判定。
+    """
+    name = path_part.rstrip("/").split("/")[-1]
+    if not name:
+        return None
+    idx = name_index()
+    cands = list(idx.get(name, []))
+    if not name.endswith(".md"):
+        cands += idx.get(name + ".md", [])
+    return True if len(set(cands)) == 1 else None
+
+
 def derive_old_ids(path_part: str) -> list:
     """从失效链接路径反推候选旧 id。
 
@@ -171,7 +255,7 @@ def collect_notes(args):
                 add(p)
             else:
                 print("[警告] 笔记不存在，跳过：%s" % f)
-    dirs = args.dir or ([] if args.file else [NOTE_DIR_DEFAULT])
+    dirs = resolve_scan_dirs(args)
     for d in dirs:
         p = Path(d)
         if not p.is_absolute():
@@ -187,8 +271,10 @@ def collect_notes(args):
 def classify(path_part: str, id2path: dict, rel2ids: dict, alias_to_theme: bool):
     """判定一处链接 → (kind, 新路径, 新别名)。
 
-    kind ∈ {OK, ARCHIVED, FIX, BROKEN}
-      OK        目标存在且在库，无需处理
+    kind ∈ {OK, LINK_OK, ARCHIVED, FIX, BROKEN}
+      OK        目标按完整相对路径存在且在库，无需处理
+      LINK_OK   裸名/裸附件名链接，目标在全库唯一命中（研究笔记互链、图片等）
+                —— 本脚本守的是**题目引用**，这类引用不算断链，仅计数不报告
       ARCHIVED  目标存在但位于库内回收站 .trash/（Obsidian 不索引，实际已表现为断链），应改指主卷
       FIX       目标不存在，可由 id 索引定位到主卷
       BROKEN    目标不存在且无法定位（需人工查）
@@ -205,6 +291,11 @@ def classify(path_part: str, id2path: dict, rel2ids: dict, alias_to_theme: bool)
                     return "ARCHIVED", tgt, (i if alias_to_theme else None)
             return "ARCHIVED", None, None
         return "OK", None, None
+
+    # 裸名链接 / 裸附件名 → 按 Obsidian 短链接规则判有效（带路径的失效链接不走这里）
+    if "/" not in rel or rel.lower().endswith(MEDIA_EXT):
+        if resolve_by_name(path_part):
+            return "LINK_OK", None, None
 
     for i in derive_old_ids(rel):
         tgt = id2path.get(i)
@@ -230,7 +321,7 @@ def run_check(files, id2path, rel2ids, args):
                     continue
                 kind, tgt, new_alias = classify(path, id2path, rel2ids, args.alias == "theme")
                 stat[kind] += 1
-                if kind == "OK":
+                if kind in ("OK", "LINK_OK"):
                     continue
                 new_alias = alias if new_alias is None else new_alias
                 new_link = join_link(tgt, new_alias, sep) if tgt else None
@@ -244,9 +335,9 @@ def run_check(files, id2path, rel2ids, args):
 
 def render(rows, stat, nfiles):
     total = sum(stat.values())
-    print("扫描笔记 %d 份 · 链接 %d 处 · 正常 %d · 归档 %d · 可自动修复 %d · 无法定位 %d"
-          % (nfiles, total, stat.get("OK", 0), stat.get("ARCHIVED", 0),
-             stat.get("FIX", 0), stat.get("BROKEN", 0)))
+    print("扫描笔记 %d 份 · 链接 %d 处 · 正常 %d · 笔记/附件 %d · 归档 %d · 可自动修复 %d · 无法定位 %d"
+          % (nfiles, total, stat.get("OK", 0), stat.get("LINK_OK", 0),
+             stat.get("ARCHIVED", 0), stat.get("FIX", 0), stat.get("BROKEN", 0)))
     if not rows:
         print("✓ 无断链，全部链接解析正常")
         return
@@ -352,6 +443,10 @@ def cmd_cite(args):
     print()
 
     files = collect_notes(args)
+    scope = resolve_scan_dirs(args)
+    print("扫描范围：%s（共 %d 份笔记）"
+          % ("、".join(scope) if scope else "仅 --file 指定", len(files)))
+    print()
     n = 0
     for f in files:
         text = read_text_raw(f)
