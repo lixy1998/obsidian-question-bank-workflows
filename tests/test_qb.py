@@ -1111,8 +1111,9 @@ class TestReadmeTree(unittest.TestCase):
 
     def _actual_entries(self):
         # `.local-backup` 是仓库侧的本地备份目录（已入 .gitignore），不随分发、也不登记进 README 树
+        # `.dsh-project-memory` 是宿主工具自动生成的隐藏目录，非 skill 资产
         skip = {"__pycache__", "_tmp", "_snap", "_dbg", "_dbg2", "_audit_tmp",
-                "_acl-recovery", ".git", ".local-backup"}
+                "_acl-recovery", ".git", ".local-backup", ".dsh-project-memory"}
         return {str(p.relative_to(SKILL)).replace("\\", "/")
                 for p in SKILL.rglob("*") if not any(s in p.parts for s in skip)}
 
