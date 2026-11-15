@@ -48,11 +48,20 @@ def normalize(rec: dict) -> dict:
     # 序号＝原卷面题号（v1.29.0 起，此前写作「强制两位 01~25」）：
     # 两位补零仅为排序与路径稳定；合卷题号跳跃（文综合 24~35、41~47）直接照抄，不重编、不补空号；
     # ≥100 时 zfill 不截断，按实际位数落盘。规则见 references/fields.md「目录规则」。
-    try:
-        rec["序号"] = str(int(str(rec["序号"]))).zfill(2)
-    except ValueError:
-        raise SchemaError(
-            f"序号须为原卷面题号（数字）：'{rec['序号']}'——合卷跳号可直接跳跃，但须为数字")
+    #
+    # 定长编码（v1.30.0，2026-11-08）：一份卷内含多课、题号每课重排时（同步教辅分层作业），
+    # 用「课次两位＋题号两位」四位编码（第1课第1题＝0101、第20课第7题＝2007）。
+    # 判据＝原序号为 ≥3 位且以 0 开头的数字串——此时**保留前导零**，否则 int() 会吃掉前导零、
+    # 使 2007 排在 0201 之前（字符串排序乱序）。其余情形照旧 int→zfill(2)。
+    raw_seq = str(rec["序号"]).strip()
+    if raw_seq.isdigit() and len(raw_seq) >= 3 and raw_seq.startswith("0"):
+        rec["序号"] = raw_seq
+    else:
+        try:
+            rec["序号"] = str(int(raw_seq)).zfill(2)
+        except ValueError:
+            raise SchemaError(
+                f"序号须为原卷面题号（数字）：'{rec['序号']}'——合卷跳号可直接跳跃，但须为数字")
     for f in LIST_FIELDS:
         if f in rec:
             rec[f] = parse_list(rec[f])

@@ -15,7 +15,8 @@ tests/_snap/
 tests/_dbg*/
 
 # 本机配置（首次使用引导写入，含个人 vault 路径，绝不随仓库发布）
-scripts/skill_config.json
+# 不限层级：scripts/ 下由引导脚本写入，根目录由宿主技能系统写入（2026-11-15）
+skill_config.json
 
 # 系统/编辑器
 .DS_Store
