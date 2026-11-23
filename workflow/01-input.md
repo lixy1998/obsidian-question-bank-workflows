@@ -253,15 +253,16 @@ python scripts/check_note_links.py --cite <题目id>  # 合并前预检：谁引
     - **批量增删改字段一律用 `scripts/edit_fields.py`**（内置 YAML 类型复检 + 默认 dry-run + 备份），不要手写正则替换
     - **改完必做三重验证**：YAML 可解析（且点名字段确为字符串列表）+ 正文与备份逐字节比对零改动 + `scan_questions.py` 零报错
 
-21. **md 表格渲染有三条硬约束，不满足就塌成纯文字/被吞行**（2026-10-02 实测，Obsidian 1.13.7；库内曾积 13 处缺空行 + 10 处引用块内表格；**表格后空行 2026-11-23 补齐**）：
+21. **md 表格渲染有两条硬约束，不满足就塌成纯文字**（2026-10-02 实测，Obsidian 1.13.7；库内曾积 13 处缺空行 + 10 处引用块内表格）：
 
     | 症状 | 根因 | 修法 |
     |---|---|---|
     | 表格显示为裸竖线文本 | **表格首行与上一行之间缺空行**——md 表格必须空行隔断，否则整段被当普通段落吞掉（实测 DOM：整段塌成单个 `<p>`，无 table） | 在表格首行前**补一个空行** |
-    | 表格后的选项行/正文被并进表格或被吞 | **表格末行与下一行之间缺空行**——md 表格在 GFM 里遇非 `\|` 行即结束（一般不出错），但**HTML 表格 `</table>` 不同：CommonMark 的 HTML block 要到空行才结束**，紧贴的行会被并入 HTML 块；经 pandoc 转 Word 时 md 表格同样不稳 | 在表格末行后**补一个空行**（`build_body` 已对「题干以表格结尾」自动用 `\n\n`；存量用 `fix_table_render.py`） |
     | 引用块里的表格显示为裸竖线文本 | **Obsidian 渲染器不支持引用块内渲染表格**——`> \| a \| b \|` 在 **Live Preview 与阅读模式下都塌**（实测该引用块 children 全是 `P`）；换成 HTML `<table>` 无空格问题也塌 | 把引用块内 md 表格**整块替换为单行 HTML `<table>`**（保留 `> ` 前缀），两模式均实测正常（rows=5） |
 
-    - 一键修复：`python scripts/fix_table_render.py [--apply] [--only blank|quote] [--side front|back|both]`——默认 dry-run，`--apply` 逐文件备份为 `.bak-tblfix`；两类可分开修。`--only blank` 默认 **both**（前后都补），只补一个方向用 `--side`。后补同时覆盖 HTML 表格，**引用块内的表格不在其列**——空行会切开引用块，属 `--only quote` 的范围。⚠ 该脚本会**跳过一切点开头目录**：库根 `.agents`/`.codebuddy` 是指向 skill 本体的 junction，穿透会把 skill 文档当库文件改写（2026-11-23 事故，见 SKILL 全局陷阱 4）
+    > **表格后不需要空行**（2026-11-23 用户定）：表格末行紧跟选项行/正文在 Obsidian 与 pandoc 转 Word 下都不影响渲染，不必补。`build_body` 因此保持单换行拼接，勿再「统一补空行」。
+
+    - 一键修复：`python scripts/fix_table_render.py [--apply] [--only blank|quote]`——默认 dry-run，`--apply` 逐文件备份为 `.bak-tblfix`；两类可分开修。⚠ 该脚本会**跳过一切点开头目录**：库根 `.agents`/`.codebuddy` 是指向 skill 本体的 junction，穿透会把 skill 文档当库文件改写（2026-11-23 事故，见 SKILL 全局陷阱 4）
     - ⚠ **引用块内 HTML 表格的副作用**：`<table>` 内不能写 md 语法——若表格单元格里有 wikilink 或 `![]()` 图片，转 HTML 后**会失效**。转前先确认单元格是纯文本；含链/图的表格须改用「移出引用块」方案（把材料从 `>` 引用降为普通段落）
     - ✅ **首选方案（2026-10-02 起，报告类文档）**：与其把表格转 HTML，不如**直接去掉引用符**——报告真题的标题行已用加粗给出出处，引用块本属冗余。去掉 `>` 后表格自然回落为 md 表格，单元格可正常嵌链嵌图。一键改造：`python scripts/fix_quote_to_plain.py --dir "3-试题研究" [--apply]`（默认 dry-run，逐文件备份 `.bak-unquote`）；规范见 `workflow/04-angle-analysis.md §6c`。`fix_table_render.py --only quote` 仅保留给**必须留在引用块内**的场景（如卷首元信息块内的表格）
     - ⚠ **与「HTML 表格内嵌 md 图片」是两条不同限制**，勿混：那条是「`<td>` 里写 `![]()` 不渲染」（见第 12 条第 2 点），本条是「引用块里写表格不渲染」

@@ -280,17 +280,15 @@ class TestSchemaPure(unittest.TestCase):
         for sym in ("(A)", "(B)", "(C)", "(D)"):
             self.assertIn(sym, body)
 
-    def test_build_body_表格结尾与选项间留空行(self):
-        """题干以 md 表格结尾时补空行（v1.46.0）：表格后紧贴选项行会带来 pandoc/含竖线选项的边界问题。"""
-        rec = q(题干="阅读下表，回答问题。\n\n| 项目 | 数值 |\n| --- | --- |\n| 甲 | 1 |")
-        body = self.s.build_body(rec)
-        self.assertIn("| 甲 | 1 |\n\n(A) 精益求精的态度", body)
-        self.assertNotIn("| 甲 | 1 |\n(A)", body)
+    def test_build_body_选项与题干间为单换行(self):
+        """正文不要求「表格后留空行」（2026-11-23 用户定）：题干与选项间恒为单换行。
 
-    def test_build_body_普通题干仍是单换行(self):
-        """非表格结尾不受影响，避免把正文行距整体放大。"""
-        body = self.s.build_body(q(题干="司母戊鼎主要反映了（　　）"))
-        self.assertIn("（　　）\n(A) ", body)
+        只有**表格前**必须有空行（否则整表塌成段落）；表格后紧跟选项行不影响渲染，
+        故 `build_body` 不做特殊处理，防止将来又按「统一补空行」改回去。
+        """
+        body = self.s.build_body(q(题干="阅读下表：\n\n| 项目 | 数值 |\n| --- | --- |\n| 甲 | 1 |"))
+        self.assertIn("| 甲 | 1 |\n(A) 精益求精的态度", body)
+        self.assertNotIn("| 甲 | 1 |\n\n(A)", body)
 
     def test_build_body_图片选项题出表格(self):
         """选项含图片引用时改出 md 表格（第一行图片、第二行 A. 文字）。"""
@@ -1251,19 +1249,13 @@ class Test录入与整治辅助(TempVaultMixin, unittest.TestCase):
         self.assertIn("正文含控制字符", r.stdout)
         self.assertIn("U+0001", r.stdout)
 
-    def test_fix_table_render_表格后补空行(self):
-        """表格末行后紧跟正文时补空行（v1.46.0 扩展，原只补表格前）。
-
-        两类都要修：md 表格与 HTML 表格（后者 CommonMark 的 HTML block 到空行才结束，
-        紧贴的行会被并进 HTML 块——真库实测 74 处）。
-        """
-        md = self._write("_tbl_after.md",
-                         "题干\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n(A) 选项\n")
-        html = self._write("_tbl_after_html.md",
-                           "题干\n\n<table><tr><td>a</td></tr></table>\n(A) 选项\n")
+    def test_fix_table_render_只补表格前(self):
+        """`--only blank` 只补表格前空行；表格后紧跟正文不动（2026-11-23 用户定）。"""
+        md = self._write("_tbl_front.md", "题干\n| a | b |\n| --- | --- |\n| 1 | 2 |\n(A) 选项\n")
         self.run_cli("fix_table_render.py", "--apply", expect=0)
-        self.assertIn("| 1 | 2 |\n\n(A) 选项", md.read_text(encoding="utf-8"))
-        self.assertIn("</table>\n\n(A) 选项", html.read_text(encoding="utf-8"))
+        out = md.read_text(encoding="utf-8")
+        self.assertIn("题干\n\n| a | b |", out)          # 表格前补上
+        self.assertIn("| 1 | 2 |\n(A) 选项", out)        # 表格后保持紧贴
 
     def test_import_from_md_无序号节标题仍剔除注意事项(self):
         """节标题写作「选择题(共20小题,20分)」（无「一、」序号）时，注意事项仍须剔除。

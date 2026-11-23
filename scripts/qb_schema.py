@@ -468,17 +468,6 @@ def _render_image_options(stem: str, opts: list) -> str:
     return f"{stem}\n\n{head}\n{sep}\n{lab}"
 
 
-def _ends_with_table(stem: str) -> bool:
-    """正文末行是否为 md 表格行或 HTML 表格结尾。
-
-    md 表格与后文之间留空行是格式一致性要求：GFM 里表格遇到非 `|` 行即结束，行尾一般
-    不塌；但选项行本身含 `|`、或经 pandoc 转 Word 时，边界并不确定。统一补空行是
-    成本最低的消除歧义做法（2026-11-23 定；此前库内「紧贴 249 处／空行 189 处」并存）。
-    """
-    last = stem.rstrip().rsplit("\n", 1)[-1].strip()
-    return last.startswith("|") or last.endswith("</table>")
-
-
 def build_body(rec: dict) -> str:
     """由 题干(+选项) 生成正文。选择题：题干 + (A)(B)(C)(D)；材料题：题干原文。
 
@@ -488,7 +477,8 @@ def build_body(rec: dict) -> str:
 
     图片选项题（2026-10-06 起）：选项项内含图片引用时改出 md 表格（见 _render_image_options）。
 
-    表格后留空行（2026-11-23 起）：题干以表格结尾时，与选项行之间用空行隔断。
+    ⚠ 题目正文**不要求**「表格后留空行」（2026-11-23 用户定）：只有表格**前**必须有空行
+    （否则整表塌成段落）；表格后紧跟选项行在 Obsidian 与 pandoc 下均正常，故保持单换行。
     """
     stem = str(rec.get("题干", "")).strip()
     opts = rec.get("选项") or []
@@ -498,8 +488,7 @@ def build_body(rec: dict) -> str:
         else:
             letters = ["A", "B", "C", "D", "E", "F"]
             line = "  ".join(f"({letters[i]}) {o.strip()}" for i, o in enumerate(opts))
-            sep = "\n\n" if _ends_with_table(stem) else "\n"
-            body = f"{stem}{sep}{line}".strip()
+            body = f"{stem}\n{line}".strip()
     else:
         body = stem
     imgs = rec.get("图片") or []
