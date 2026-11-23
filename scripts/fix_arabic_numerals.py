@@ -31,11 +31,12 @@ CN = {c: str(i) for i, c in enumerate("一二三四五六七八九十", 1)}
 BOOK_CN2AR = {"七上": "7上", "七下": "7下", "八上": "8上", "八下": "8下",
               "九上": "9上", "九下": "9下"}
 
-# 全库遍历须跳过的**顶层隐藏目录**（2026-09-27 起）：
+# 全库遍历跳过**一切点开头的顶层目录**（2026-09-27 白名单起，2026-11-23 改为「点开头即跳过」）：
 #   .trash      库内 Obsidian 回收站——一题多卷归档件落此，属留痕，不应被日常批处理改写
 #   .obsidian   配置与插件 / .dedupe 合并日志 / .linkfix 修复日志
 #   .Z-Archive  同日弃用的过渡落点，留作防御（万一残留或重建）
-HIDDEN_SKIP = (".trash", ".obsidian", ".dedupe", ".linkfix", ".git", ".Z-Archive")
+#   .agents / .codebuddy  指向 skill 本体的目录联接——rglob 穿透会改写 skill 自己的文档
+# ⚠ 不再用显式白名单：新增点目录（如上述两种联接）会绕过白名单，故改为前缀判据。
 
 
 def iter_library_md(vault: Path):
