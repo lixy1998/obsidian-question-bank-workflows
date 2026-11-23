@@ -85,6 +85,23 @@ TBL_ROW_RE = re.compile(r"^\s*\|")
 SEP_ROW_RE = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
 
 
+def control_chars(body: str):
+    """正文中的 C0 控制字符（`\n`/`\t` 除外）→ 返回 [(行号, 字符名/码位)]；无则 None。
+
+    2026-11-23 加。真实事故：批量脚本用 `re.sub(r'(材料)([一二三])', '\\1 ', …)` 写替换串，
+    Python 把 `'\\1 '` 当**八进制转义**（`\1` → U+0001），替换后「材料一/二/三」整段丢失，
+    屏幕上几乎看不出来。此坑的最终症状就是控制字符入库，所以把它做成可机判的关口——
+    `scan` 一跑就拦，不依赖人眼。正确写法：`lambda m: m.group(1) + ' '` 或 `r'\\g<1> '`。
+    """
+    hits = []
+    for ln, line in enumerate(body.split("\n"), 1):
+        for ch in line:
+            if ord(ch) < 32 and ch != "\t":
+                hits.append((ln, f"U+{ord(ch):04X}"))
+                break
+    return hits or None
+
+
 def table_missing_sep(body: str):
     """找「连续 | 行块的第 2 行不是分隔行」——表格缺 `|---|`，Obsidian 不渲染。
 
@@ -330,6 +347,13 @@ def scan(roots, only_vol: str = None):
             # 正文非空
             if not body.strip():
                 problems.append(f"[正文为空] {rel}")
+            # 正文含 C0 控制字符（2026-11-23 加）：re.sub 替换串写成 '\1' 的静默事故
+            ctl = control_chars(body)
+            if ctl:
+                loc = "、".join(f"第 {ln} 行 {ch}" for ln, ch in ctl[:3])
+                problems.append(
+                    f"[正文含控制字符] {rel}（{loc}；多为 re.sub 替换串写成 '\\1' 被当作"
+                    f"八进制转义，改用 lambda 或 \\g<1>）")
             # 表格缺分隔行（2026-10-19 加）：`| 表头 |` 后直接数据行 → 表格不渲染（塌成裸竖线）
             _tbl = table_missing_sep(body)
             if _tbl:

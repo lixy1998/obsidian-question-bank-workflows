@@ -280,6 +280,18 @@ class TestSchemaPure(unittest.TestCase):
         for sym in ("(A)", "(B)", "(C)", "(D)"):
             self.assertIn(sym, body)
 
+    def test_build_body_表格结尾与选项间留空行(self):
+        """题干以 md 表格结尾时补空行（v1.46.0）：表格后紧贴选项行会带来 pandoc/含竖线选项的边界问题。"""
+        rec = q(题干="阅读下表，回答问题。\n\n| 项目 | 数值 |\n| --- | --- |\n| 甲 | 1 |")
+        body = self.s.build_body(rec)
+        self.assertIn("| 甲 | 1 |\n\n(A) 精益求精的态度", body)
+        self.assertNotIn("| 甲 | 1 |\n(A)", body)
+
+    def test_build_body_普通题干仍是单换行(self):
+        """非表格结尾不受影响，避免把正文行距整体放大。"""
+        body = self.s.build_body(q(题干="司母戊鼎主要反映了（　　）"))
+        self.assertIn("（　　）\n(A) ", body)
+
     def test_build_body_图片选项题出表格(self):
         """选项含图片引用时改出 md 表格（第一行图片、第二行 A. 文字）。"""
         rec = q(选项=[
@@ -1187,6 +1199,71 @@ class Test录入与整治辅助(TempVaultMixin, unittest.TestCase):
         # 答案区不入选
         self.assertNotIn("参考答案", json.dumps(out, ensure_ascii=False))
         self.assertIn("回填 2 题", r.stdout)
+
+    def test_import_from_md_题干与选项同行(self):
+        """MinerU vlm 把「题干…（　　）A. …B. …」压在一行时也要切出选项（v1.46.0 行内顺序锚）。
+
+        回归：2026-11-23 郑州卷实测 25 题中 19 题如此——行首锚（`^A.`）一条都不命中，
+        整块当题干、选项为空，回填后题干里还留着全部选项文字。
+        """
+        md = self._write("_src_inline.md", (
+            "一、选择题\n\n"
+            "1．秦朝统一后在地方推行郡县制。这表明（　　）A．分封制瓦解 B．中央集权加强 "
+            "C．皇帝独尊 D．疆域扩大\n\n"
+            "2．下面两幅图可用于探究（　　）A．丝路贸易B．农耕技术C．冶铁工艺D．城市生活\n"))
+        js = self._write("_in_inline.json", json.dumps(
+            [{"序号": "01", "题型": "选择题"}, {"序号": "02", "题型": "选择题"}], ensure_ascii=False))
+        r = self.run_cli("import_from_md.py", "--源", str(md), "--json", str(js), expect=0)
+        out = json.loads(js.read_text(encoding="utf-8"))
+        self.assertEqual(out[0]["题干"], "秦朝统一后在地方推行郡县制。这表明（　　）")
+        self.assertEqual(out[0]["选项"], ["分封制瓦解", "中央集权加强", "皇帝独尊", "疆域扩大"])
+        self.assertEqual(out[1]["选项"], ["丝路贸易", "农耕技术", "冶铁工艺", "城市生活"])
+        self.assertNotIn("未切出选项", r.stdout)
+
+    def test_import_from_md_表格内方案字母不误切(self):
+        """材料表格里排了 A./B./C. 三个方案时，不得把它们当选项起点。
+
+        行内锚要求「作答括号出现在 A 之前」——表格在括号之前，判据不成立，回退行首锚。
+        """
+        md = self._write("_src_tbl.md", (
+            "一、选择题\n\n"
+            "1．阅读下表，回答问题。\n\n"
+            "| 方案 | 内容 |\n| --- | --- |\n| A. 甲 | 一 |\n| B. 乙 | 二 |\n| C. 丙 | 三 |\n\n"
+            "上述方案中最佳的是（　　）\n\n"
+            "A．甲 B．乙 C．丙 D．丁\n"))
+        js = self._write("_in_tbl.json", json.dumps(
+            [{"序号": "01", "题型": "选择题"}], ensure_ascii=False))
+        self.run_cli("import_from_md.py", "--源", str(md), "--json", str(js), expect=0)
+        out = json.loads(js.read_text(encoding="utf-8"))
+        self.assertIn("| C. 丙 | 三 |", out[0]["题干"])
+        self.assertEqual(out[0]["选项"], ["甲", "乙", "丙", "丁"])
+
+    def test_scan_拦下正文控制字符(self):
+        """`re.sub` 替换串写成 '\\1' 会把中文序号变成 U+0001，scan 须当问题拦下（v1.46.0）。
+
+        真实事故：2026-11-23 郑州卷回填脚本把「材料一/二/三」整段吃掉，
+        屏幕上几乎看不出——只能靠可机判的控制字符关口兜住。
+        """
+        f = self.make_question()
+        text = f.read_text(encoding="utf-8")
+        f.write_text(text + "\n材料\x01一：正文\n", encoding="utf-8")
+        r = self.run_cli("scan_questions.py", expect=1)
+        self.assertIn("正文含控制字符", r.stdout)
+        self.assertIn("U+0001", r.stdout)
+
+    def test_fix_table_render_表格后补空行(self):
+        """表格末行后紧跟正文时补空行（v1.46.0 扩展，原只补表格前）。
+
+        两类都要修：md 表格与 HTML 表格（后者 CommonMark 的 HTML block 到空行才结束，
+        紧贴的行会被并进 HTML 块——真库实测 74 处）。
+        """
+        md = self._write("_tbl_after.md",
+                         "题干\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n(A) 选项\n")
+        html = self._write("_tbl_after_html.md",
+                           "题干\n\n<table><tr><td>a</td></tr></table>\n(A) 选项\n")
+        self.run_cli("fix_table_render.py", "--apply", expect=0)
+        self.assertIn("| 1 | 2 |\n\n(A) 选项", md.read_text(encoding="utf-8"))
+        self.assertIn("</table>\n\n(A) 选项", html.read_text(encoding="utf-8"))
 
     def test_import_from_md_无序号节标题仍剔除注意事项(self):
         """节标题写作「选择题(共20小题,20分)」（无「一、」序号）时，注意事项仍须剔除。

@@ -21,7 +21,9 @@
     答案题号写作「19（15分）」「(1)【答案】」，既不匹配建块正则、又不含上述标记，
     于是整段答案并入试卷区最后一个块 → 按块内特征词（`【答案】` `【解析】` `替代答案`
     `酌情给分` 等）截断到最后一个「（N分）」之后；
-  · **选择题**切出题干与 A–D 选项：容忍两项紧邻、字母后无空格（`理性C.人物…`）；
+  · **选择题**切出题干与 A–D 选项：容忍两项紧邻、字母后无空格（`理性C.人物…`）、
+    **以及「题干与选项整段压在同一行」**（`…（　　）A. 甲 B. 乙 C. 丙 D. 丁`，
+    MinerU vlm 高频形态；判据见 `split_options` 的「行内顺序锚」）；
   · **非选择题**删块首整题分值（`（20分）`，可位于行首或行尾），**保留各小问分值**；
   · **图片引用**按题号规范为 `images/{题号}_{n}.{ext}`，**保留原扩展名**
     （库内不可显示格式另有 `fix_image_formats.py` 兜底）；**题干与选项中的图引用都处理**，
@@ -72,6 +74,13 @@ SECT_HEAD_RE = re.compile(r"^" + _SECT_PFX + _SECT_BODY + _SECT_TAIL + r"$")
 SECTION_RE = re.compile(r"\n" + _SECT_PFX + _SECT_BODY + _SECT_TAIL + r"(?=\n|$)")
 QNO_RE = re.compile(r"^[ \t]*(?:#{1,6}[ \t]*)?(\d{1,2})[.．][ \t]*(.*)$")
 OPT_START_RE = re.compile(r"(?:^|\n)[ \t]*A[.．]")
+# 行内顺序锚（v1.46.0）：MinerU vlm 常把「题干…（　　）A. 甲 B. 乙 C. 丙 D. 丁」压在同一行，
+# 行首锚一条都命中不了 → 整块当题干、选项为空（2026-11-23 郑州卷实测 25 题中 19 题如此）。
+# 按 A→F 顺序递进匹配，同一字母只取首个；`(?<![A-Za-z])` 挡掉「A.B.」式英文缩写。
+OPT_LETTERS = "ABCDEF"
+OPT_INLINE_RE = re.compile(r"(?<![A-Za-z])([A-F])[.．]")
+# 作答括号（全角/半角，中间可含空格/全角空格）——选择题题干末尾必备，作行内锚的准入判据
+BRACKET_RE = re.compile(r"[（(][\s\u3000]*[）)]")
 IMG_RE = re.compile(r"!\[[^\]]*\]\(images/[^)]+\)")
 SCORE_RE = re.compile(r"(?<!\d)[（(]\s*\d+\s*分\s*[）)]")   # 排除「17（12分）」这类答案区题号+分值
 
@@ -198,20 +207,55 @@ def load_blocks(md: str) -> dict:
     return {k: trim_answer_tail(v) for k, v in blocks.items()}
 
 
+def ordered_option_hits(text: str):
+    """按字母顺序递进扫描选项标记，返回 [(字母, 起始下标)]。
+
+    「顺序」是关键判据：见到 B 才认 B（内容里的杂字母不会被当分隔符），
+    A→F 全部取齐即停。比 `re.split(r"(?=[ABCD][.．])")` 稳，后者会把选项
+    内容里出现的「B.」也切成新选项（2026-11-23 起改用本函数）。
+    """
+    want, hits = 0, []
+    for m in OPT_INLINE_RE.finditer(text):
+        if m.group(1) != OPT_LETTERS[want]:
+            continue
+        hits.append((m.group(1), m.start()))
+        want += 1
+        if want >= len(OPT_LETTERS):
+            break
+    return hits
+
+
+def _cut_ordered(text: str):
+    """按顺序切分选项文本 → [选项内容]（不含字母前缀）。"""
+    hits = ordered_option_hits(text)
+    out = []
+    for i, (_letter, pos) in enumerate(hits):
+        end = hits[i + 1][1] if i + 1 < len(hits) else len(text)
+        out.append(text[pos + 2:end].strip())      # pos+2：跳过「字母+点」两个字符
+    return out
+
+
 def split_options(block: str):
-    """块 → (题干, [选项…])；无选项行时返回 (题干, [])。"""
+    """块 → (题干, [选项…])；无选项时返回 (题干, [])。
+
+    两道锚（v1.46.0 起并立，取能用者）：
+      ① **行内顺序锚**：A/B/C 至少三连，且作答括号「（　　）」出现在 A **之前**。
+         治「题干与选项同行」。要求括号在前，是为挡「材料表格里排了 A. B. C. 三个
+         方案」被误当选项——那种情形括号在表格之后，判据自然不成立。
+      ② **行首锚**（旧行为）：`^A.`，兜底选项不足三项的残缺情形（OCR 吞项等），
+         仍由调用方的「选项数≠4」告警兜住。
+    """
+    hits = ordered_option_hits(block)
     m = OPT_START_RE.search(block)
-    if not m:
+    if len(hits) >= 3 and BRACKET_RE.search(block[: hits[0][1]]):
+        start = hits[0][1]
+    elif m:
+        start = m.start() + m.group(0).index("A")
+    else:
         return block.strip(), []
-    stem = block[:m.start()].strip()
-    opt_part = re.sub(r"[ \u3000]+", " ", block[m.start():].replace("\n", " ").replace("\t", " ")).strip()
-    opts = []
-    for part in re.split(r"(?=[ABCD][.．])", opt_part):
-        part = part.strip()
-        mm = re.match(r"^([ABCD])[.．]\s*(.*)$", part)
-        if mm:
-            opts.append(mm.group(2).strip())
-    return stem, opts
+    stem = block[:start].strip()
+    opt_part = re.sub(r"[ \u3000]+", " ", block[start:].replace("\n", " ").replace("\t", " ")).strip()
+    return stem, _cut_ordered(opt_part)
 
 
 def renumb_imgs(text: str, qno: int, start: int = 0):
@@ -292,7 +336,9 @@ def main() -> None:
                 new_opts.append(o2)
             rec["选项"] = new_opts
             if not opts:
-                print(f"  ⚠ 序号 {qno}：未切出选项，请人工核对")
+                print(f"  ⚠ 序号 {qno}：未切出选项，请人工核对"
+                      f"（若源文把题干与选项写在同一行，先确认题干末尾有作答括号"
+                      f"「（　　）」——行内锚以它为准入判据）")
             elif len(new_opts) != 4:
                 print(f"  ⚠ 序号 {qno}：切出 {len(new_opts)} 个选项（应为 4）——"
                       f"多为选项并排/漏项/串题，回查源文")

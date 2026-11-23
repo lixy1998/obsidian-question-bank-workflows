@@ -62,16 +62,26 @@ def is_table_start(lines, i):
 
 
 def load_vault(explicit=None):
+    """vault 定位——与其它脚本同源（TNOTE_VAULT > skill_config.json）。
+
+    2026-11-23 修：旧实现硬编码 `D:/Documents/TNote`，绕过 TNOTE_VAULT，
+    测试指向临时库却实际扫写真库。
+    """
     if explicit:
         return Path(explicit)
-    for cand in (Path(r"D:/Documents/TNote"),):
-        if cand.exists():
-            return cand
-    sys.exit("未找到 vault，请用 --vault 指定")
+    from qb_schema import get_vault
+    try:
+        return Path(get_vault())
+    except Exception as e:
+        sys.exit(str(e))
 
 
 def iter_md(vault, only_dirs=None):
     for p in vault.rglob("*.md"):
+        # 点开头目录一律跳过：库根下的 .agents/.codebuddy/skills 是**指向 skill 本体的
+        # 目录联接**，rglob 会穿透进去改写 skill 自己的文档（2026-11-23 实测）。
+        if any(part.startswith(".") for part in p.relative_to(vault).parts[:-1]):
+            continue
         if any(s in part for s in SKIP_PARTS for part in p.parts):
             continue
         if p.name.endswith(SKIP_SUFFIX):

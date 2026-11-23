@@ -1106,3 +1106,36 @@ docstring 关键词命中（`require_vault` 含「参数校验之后」、`boots
 **验证**：`node --check` 通过（提取 dataviewjs 块 84k 字符）；按同一口径离线复算，信阳 23→25、南阳 24→25、洛阳 24→25，
 与全库总览一致；`scan_questions.py`／`check_note_links.py` 均无新增问题。
 
+---
+
+## 2026-11-23 · 🔧 录入链路三处加固：行内选项切分 / 控制字符关口 / 表格后空行（v1.46.0）
+
+**缘起**：录郑州外国语 2026-2027 学年 9 上期中卷（29 题）与 2024 山东高考卷（19 题）时，运行过程暴露三件事，要求回填 skill。
+
+| # | 现象 | 性质 |
+|---|---|---|
+| 1 | `import_from_md.py` 对「题干…（　　）A. …B. …」压在同一行的 MinerU 输出**整题切不出选项**（郑州卷 25 题中 19 题告警） | 判据过窄，真缺陷 |
+| 2 | 一次性脚本里 `re.sub(…, '材料\1 ', …)` 被 Python 当八进制转义（`\1`→U+0001），「材料一/二/三」序号整段消失 | 写脚本的纪律，脚本本身无错 |
+| 3 | `build_body` 用 `f"{stem}\n{line}"` 拼选项，题干以表格结尾时表格与选项间只有一个换行 | 格式约定 |
+
+**改动（4 脚本 + 2 文档 + 测试）**
+
+1. `import_from_md.py`：新增**行内顺序锚**——按 A→F **顺序递进**匹配 `[A-F][.．]`（`(?<![A-Za-z])` 挡英文缩写），准入条件是「A/B/C 至少三连」且「作答括号在 A 之前」（后者专门挡材料表格里的 A./B./C. 三方案）。原行首锚保留兜底，选项不足三项的残缺情形行为不变。顺带替掉 `re.split(r"(?=[ABCD][.．])")`——旧写法会把选项内容里的 `B.` 也切成新选项。
+2. `qb_schema.build_body`：题干末行为 md 表格行或 `</table>` 时，与选项行之间用 `\n\n`（`_ends_with_table`）。
+3. `fix_table_render.py`：`--only blank` 从「只补表格前」扩为**前后都补**；后补同时覆盖 **HTML 表格**（`</table>` 后紧跟正文——CommonMark 的 HTML block 到空行才结束，紧贴行会被并入），**引用块内的不动**（空行会切开引用块）。
+4. `scan_questions.py`：新增 `[正文含控制字符]`（C0，`\n`/`\t` 除外）→ 报问题级并阻断。第 2 条的最终症状就是控制字符入库，此关一开，静默事故必被拦。
+5. `workflow/01-input.md`：陷阱 21 的「两条硬约束」改为**三条**（补「表格后缺空行」，含 HTML 表格实证）；新增**陷阱 25**（替换串禁 `\1`、heredoc 二次转义、序号空格正则须排除标点）。
+6. `tests/test_qb.py`：新增 5 例（行内选项、表格内方案不误切、build_body 表格后空行、build_body 普通题干仍单换行、scan 控制字符、fix_table_render 前后补空行）。
+
+**顺带修掉两个隐患（都是本次事故暴露的）**
+
+1. `fix_table_render.load_vault` 原先**硬编码 `D:/Documents/TNote`，绕过 `TNOTE_VAULT`**——测试指向临时库却实际扫描真库，带 `--apply` 时会误写真库（违反 SKILL 全局陷阱 3）。已统一改回 `qb_schema.get_vault()`；同批的 `fix_item_spacing.py`／`fix_quote_to_plain.py` 同病同治。
+2. **库根 junction 穿透（严重）**：真库根下有 `.agents/skills/…`、`.codebuddy/skills/…` 指向 `C:\Users\<用户>\.agents\skills\`，`Path.rglob` 会进入联接，把 skill 本体的 `references/fields.md`、`试卷排版规范.md`、`workflow/04-angle-analysis.md` **当库文件改写**（本次实测 3 个，备份也落在 skill 目录）。`fix_table_render`／`fix_item_spacing`／`fix_quote_to_plain`／`fix_arabic_numerals` 四处的遍历已改为「点开头目录一律跳过」，并写进 **SKILL 全局陷阱 4**。
+
+**过程中的一次越界与回滚（留痕）**：首次跑测试时旧脚本 `--only` 默认为 `None`（blank + quote 同时执行），且 `load_vault` 绕过环境变量 → 对真库 343 个 md 做了「表格前补空行 + 引用块表格转 HTML」。已按 `.bak-tblfix` **全部还原**（备份整体移出库到系统临时目录），确认仅 2 个文件真的发生 quote 转换，其余 341 个只是空行；随后**只**执行「表格后补空行」（`--side back`）这一项。为新需求给 blank 类加了 `--side front|back|both` 开关（默认 both，保持旧语义）。
+
+**验证**：`tests/test_qb.py` **110 项全绿**；`split_options` 四个形态实测（行内四项／字母无空格／表格三方案／仅两项）均符合预期；`scan_questions.py` 全库 **✓ 无问题**（新增的控制字符检查对存量零误报）。
+
+**存量归一（真库实跑）**：`--only blank --side back --apply` → **329 个文件 / 361 处**（主要是 `3-试题研究` 的分析报告与课标笔记里「md 表格后紧跟正文」），复检 **0 处**；库内 `.bak-tblfix` 已清零，「表格前缺空行」仅剩 **2 处**（本次未动，待定）。
+
+

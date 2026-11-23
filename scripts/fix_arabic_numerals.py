@@ -39,10 +39,14 @@ HIDDEN_SKIP = (".trash", ".obsidian", ".dedupe", ".linkfix", ".git", ".Z-Archive
 
 
 def iter_library_md(vault: Path):
-    """库内 md（跳过 HIDDEN_SKIP 所列的顶层隐藏目录，其余递归）。"""
+    """库内 md（跳过点开头的顶层目录，其余递归）。
+
+    ⚠ 用「点开头」而非白名单：库根下的 `.agents`/`.codebuddy` 是**指向 skill 本体的
+    目录联接**，rglob 会穿透进去把 skill 自己的文档当库文件改写（2026-11-23 实测）。
+    """
     vault = Path(vault)
     for md in sorted(vault.rglob("*.md")):
-        if md.relative_to(vault).parts[0] in HIDDEN_SKIP:
+        if md.relative_to(vault).parts[0].startswith("."):
             continue
         yield md
 
