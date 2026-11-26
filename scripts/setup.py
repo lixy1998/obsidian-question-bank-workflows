@@ -42,12 +42,15 @@ def write_config(vault: str) -> None:
 
 
 def init_vault(vault: str) -> None:
-    """建库：六类别目录 + 模板目录 + 复制单题模板。"""
+    """建库：六类别目录 + 功能目录（Inbox/1-MoC-索引/2-Evidence-依据/3-Research-研究/0-Template）+ 复制模板。"""
     root = Path(vault)
     root.mkdir(parents=True, exist_ok=True)
     for c in CATEGORIES:
         (root / c).mkdir(parents=True, exist_ok=True)
-    tpl_dir = root / "0-Template-模板"
+    # 功能目录（空目录也建，保证链路有落点；题根中的 案例学习 仍按需手工建）
+    for d in ("Inbox-收集", "1-MoC-索引", "2-Evidence-依据", "3-Research-研究", "0-Template-模板"):
+        (root / d).mkdir(parents=True, exist_ok=True)
+    tpl_dir = root / "0-Template-模板"   # 与 qb_schema.TEMPLATE_DIR 同名
     tpl_dir.mkdir(parents=True, exist_ok=True)
     tpls = sorted(TEMPLATES_DIR.glob("*.md")) if TEMPLATES_DIR.exists() else []
     if not tpls:
@@ -59,7 +62,7 @@ def init_vault(vault: str) -> None:
             print(f"[建库] 模板已复制到 {dst}")
         else:
             print(f"[建库] 模板已存在，跳过：{dst}")
-    print(f"[建库] 完成：{root}（六类别目录 + 模板目录）")
+    print(f"[建库] 完成：{root}（六类别目录 + 功能目录 + 模板）")
 
 
 def interactive() -> None:

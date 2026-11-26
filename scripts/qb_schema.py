@@ -84,8 +84,20 @@ REQUIRED_FIELDS = ["id", "册别", "单元", "课", "题型", "难度",
                    "分值", "来源", "年份", "考区", "答案"]
 
 
+# ---- 功能目录（非题根）----
+# 2026-11-26 目录重排：功能目录名只在此登记一处，脚本一律引用，不再各写字符串。
+# 体例：数字只给功能层（0 模板 / 1 索 / 2 据 / 3 出）；题根与 Inbox 不占号。
+INBOX_DIR = "Inbox-收集"      # 临时落地（待处理的堆，不占号）
+INDEX_DIR = "1-MoC-索引"          # 索引层（MoC 混合式）
+EVIDENCE_DIR = "2-Evidence-依据"       # 依据层：课标原文 / 二手解读·培训·教辅 / 论文原文
+REPORT_DIR = "3-Research-研究"         # 产出层：教材分析 / 考查方向 / 卷考情 / 专题 / 清单 / 案例研究
+TEMPLATE_DIR = "0-Template-模板"  # 能力层：模板 + 导出脚本
+# 题根中的特例：案例题不按学段分目录、不占数字号，与六卷类别同属题库容器
+CASE_ROOT = "案例学习"
+
+
 def stage_roots() -> list:
-    """vault 根下所有题库目录（初中-* / 高中-*）。
+    """vault 根下所有题根目录（初中-* / 高中-* + 案例学习）。
 
     未配置 / 目录不存在时经 `qb_bootstrap.require_vault()` 给出中文引导并退出码 2
     （而不是裸抛 RuntimeError）——本函数是绝大多数脚本第一个真正需要 vault 的动作，
@@ -94,13 +106,14 @@ def stage_roots() -> list:
     from qb_bootstrap import require_vault  # 延迟导入避免与 qb_bootstrap 形成环
 
     return sorted(p for p in require_vault().iterdir()
-                  if p.is_dir() and re.match(r"^(初中|高中)-", p.name))
+                  if p.is_dir() and (re.match(r"^(初中|高中)-", p.name) or p.name == CASE_ROOT))
 
 
 # 题库目录名（学段-序号类别），题目文件**必须**位于其下：
 #   {vault}/{学段-类别}/{卷名}/{卷名}_{题型}/{序号}.md
+# 案例题例外：{vault}/案例学习/{卷名}/{卷名}_{题型}/{序号}.md
 # `is_question_file` 据此判定，避免把 vault 内非题库目录（0-Template-模板、1-MoC-索引、
-# 2-命题与评价、3-试题研究 等）下的同名结构文件误判为题目。
+# 2-Evidence-依据、3-Research-研究 等）下的同名结构文件误判为题目。
 STAGE_DIR_RE = re.compile(r"^(初中|高中)-")
 
 
@@ -641,15 +654,21 @@ def is_question_file(p) -> bool:
     文件名判据保持原样（排除 README、`_` 前缀辅助文件、导出卷）。
     ⚠ **库内回收站 `.trash/` 下的归档件仍返回 True**（它们保持着题库内相对路径）——
     `check_note_links.py` 正是靠这个判定扫描归档件、反推旧 id。是否排除归档区由调用方决定：
-    遍历用 `stage_roots()`（只含 初中-*/高中-*，天然不含 `.trash`）。
+    遍历用 `stage_roots()`（六卷类别 + 案例学习，天然不含 `.trash`）。
     """
     p = Path(p)
     if p.name == "README.md" or p.name.startswith("_"):
         return False
     if p.name.endswith(("_学生版.md", "_教师版.md", "_命题说明.md")):
         return False
-    # 路径判据：任一层目录名命中「初中-…/高中-…」即视为题库内文件
-    return any(STAGE_DIR_RE.match(part) for part in p.parts)
+    # 路径判据一：任一层目录名命中「初中-…/高中-…」即视为题库内文件
+    if any(STAGE_DIR_RE.match(part) for part in p.parts):
+        return True
+    # 路径判据二：案例学习 是题根，但其下也允许放说明性笔记（如论文汇编）——
+    # 须再验一层结构 `{卷名}/{卷名}_{题型}/{题号}.md`，避免把笔记误判成题目（2026-11-26）
+    if CASE_ROOT in p.parts:
+        return p.stem.isdigit() and any(p.parent.name.endswith("_" + t) for t in TYPES)
+    return False
 
 
 def authority_key(rec: dict, path=None) -> tuple:

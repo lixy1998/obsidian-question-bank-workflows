@@ -49,6 +49,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import qb_schema
 from qb_bootstrap import bootstrap, try_import
 
 PIL_Image = try_import("PIL.Image")   # 可选：缺 Pillow 时降级为「只看体积」
@@ -68,8 +69,9 @@ THRESHOLDS = {
 }
 IMG_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"}
 # 卷目录所在类别（scan 与 vol_dir 共用，勿两处各写一份）
-CATEGORY_SEGS = ["初中-1中考真题", "初中-2中考模拟题", "初中-3阶段测试",
-                 "高中-1高考真题", "高中-2高考模拟题", "高中-3阶段测试", "4-案例学习"]
+# 题根目录名由 qb_schema 统一登记（2026-11-26 起不再本地复制一份，避免两处判断打架）
+CATEGORY_SEGS = ([f"{s}-{c}" for s, cats in qb_schema.CATEGORIES.items() for c in cats]
+                 + [qb_schema.CASE_ROOT])
 MD_IMG = re.compile(r"!\[[^\]]*\]\((images/[^)\s]+)\)")
 # 选项行（如「(A) 历史价值  (B) 科技价值 …」）——选择题图片下一行常是它，不能当图注
 OPT_LINE = re.compile(r"[（(][A-D][)）]")

@@ -45,9 +45,16 @@ def vault_dir() -> Path:
     return require_vault()
 
 
+_REPORT_DIR = None
+
+
 def note_dir() -> Path:
-    """报告笔记目录：{vault}/3-试题研究"""
-    return vault_dir() / "3-试题研究"
+    """报告笔记目录：{vault}/3-Research-研究（可用 --dir 覆盖）。
+
+    2026-11-26 起 3-Research-研究 分子目录，扫描改 rglob；此前 glob 非递归，
+    报告一进子目录就会**静默空跑**（无报错、无输出）。
+    """
+    return vault_dir() / (_REPORT_DIR or qb_schema.REPORT_DIR)
 
 
 ROOTS = ["初中-1中考真题", "初中-2中考模拟题", "初中-3阶段测试",
@@ -220,8 +227,10 @@ def main():
     bootstrap()
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--dir", default=None,
+                    help="报告目录（相对 vault，默认 3-Research-研究；含子目录）")
     ap.add_argument("--files", nargs="*", default=None,
-                    help="指定笔记文件名（默认扫描 3-试题研究/ 全部 .md）")
+                    help="指定笔记文件名（默认扫描 3-Research-研究/ 全部 .md，含子目录）")
     args = ap.parse_args()
 
     vols = build_volume_index()
@@ -232,11 +241,15 @@ def main():
     all_unres = []
     all_other = []
 
-    fnames = args.files or sorted(p.name for p in note_dir().glob("*.md"))
-    for fname in fnames:
-        p = note_dir() / fname
+    global _REPORT_DIR
+    _REPORT_DIR = args.dir
+    root = note_dir()
+    files = ([root / f for f in args.files] if args.files
+             else sorted(root.rglob("*.md")))
+    for p in files:
+        fname = p.name
         if not p.is_file():
-            print("[跳过] 不存在：%s" % fname)
+            print("[跳过] 不存在：%s" % p)
             continue
         text = p.read_text(encoding="utf-8")
         # 读报告自身册别，作为卷匹配的加分项

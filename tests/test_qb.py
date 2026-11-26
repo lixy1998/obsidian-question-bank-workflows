@@ -440,7 +440,11 @@ class TestIsQuestionFile(unittest.TestCase):
     def test_模板目录文件为假(self):
         # 历史回归点：曾把 0-Template-模板/历史试题模板.md 当成题目，全库统计虚增、示例 id 撞车
         self.assertFalse(self.s.is_question_file("0-Template-模板/历史试题模板.md"))
-        self.assertFalse(self.s.is_question_file("3-试题研究/某报告.md"))
+        self.assertFalse(self.s.is_question_file("3-Research-研究/某报告.md"))
+    def test_案例题在题根内为真(self):
+        # 2026-11-26：案例学习 与六卷类别同属题根，须进校验/查重/统计
+        self.assertTrue(self.s.is_question_file("案例学习/2026黄牧航项目式命题/2026黄牧航项目式命题_综合探究题/01.md"))
+        self.assertFalse(self.s.is_question_file("案例学习/项目式命题原文汇编.md"))
         self.assertFalse(self.s.is_question_file("1-MoC-索引/9上-试题索引.md"))
 
     def test_辅助与导出文件为假(self):

@@ -45,7 +45,7 @@ def data_sources(册) -> list:
 def out_dir() -> Path:
     """索引输出目录（惰性求值：qb_schema.VAULT 改用模块级 __getattr__ 后，
     模块导入期不再触碰 vault，未配置时也能 `--help`）。"""
-    return require_vault() / "1-MoC-索引"
+    return require_vault() / qb_schema.INDEX_DIR
 
 
 def targets() -> list:

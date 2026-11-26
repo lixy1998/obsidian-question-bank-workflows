@@ -52,10 +52,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from qb_bootstrap import bootstrap, require_vault
-from qb_schema import ARCHIVE_ROOT, TYPES, is_question_file, split_frontmatter  # noqa: E402
+from qb_schema import (ARCHIVE_ROOT, REPORT_DIR, TYPES, is_question_file,
+                       split_frontmatter)  # noqa: E402
 
 ARCHIVE_DIR = ARCHIVE_ROOT          # 单一来源：qb_schema（点开头＝Obsidian 不索引该目录）
-NOTE_DIR_DEFAULT = "3-试题研究"
+NOTE_DIR_DEFAULT = REPORT_DIR     # 单一来源：qb_schema.REPORT_DIR
 CHECKLIST_NAME = "_组卷清单.md"      # 组卷清单是合并断链的**首要受害文件**（见模块 docstring）
 LOG_DIR = ".linkfix"
 
