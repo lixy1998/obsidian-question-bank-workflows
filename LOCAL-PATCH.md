@@ -1141,5 +1141,32 @@ docstring 关键词命中（`require_vault` 含「参数校验之后」、`boots
 
 **验证**：`tests/test_qb.py` **109 项全绿**；`split_options` 四个形态实测（行内四项／字母无空格／表格三方案／仅两项）均符合预期；`scan_questions.py` 全库 **✓ 无问题**（控制字符检查对存量零误报）。
 
+---
+
+## 2026-11-26 · 🏗️ 库内目录重定位：功能目录归位、案例学习升为题根（v1.46.1 → v1.47.0）
+
+**缘起**：库内目录口径长期散落在各脚本字符串里（`3-试题研究`、`4-案例学习` 等多处硬编码），改一处漏一处；且原 `4-案例学习` 用功能层序号命名，与「案例题属题根」的实际性质矛盾。本次把目录名收敛到 `qb_schema` 单一来源，脚本一律引用常量。
+
+| 旧 | 新 | 性质 |
+|---|---|---|
+| `3-试题研究/` | `3-Research-研究/` | 功能层（产出层），序号保留 |
+| `4-案例学习/` | `案例学习/` | **题根**，与六卷类别同族，不占功能目录序号 |
+| 各脚本散落字符串 | `qb_schema` 目录常量 | 单一来源 |
+
+**功能目录体例**（数字只给功能层）：`Inbox-收集`（不占号）／`0-Template-模板`／`1-MoC-索引`／`2-Evidence-依据`／`3-Research-研究`；题根＝初中/高中六卷类别 + `案例学习`。
+
+**改动清单（17 文件）**
+
+1. `qb_schema.py`：新增 `INBOX_DIR` / `INDEX_DIR` / `EVIDENCE_DIR` / `REPORT_DIR` / `TEMPLATE_DIR` / `CASE_ROOT` 六个目录常量；`stage_roots()` 纳入 `案例学习`；`is_question_file()` 对 `案例学习` 增加结构判据（`{卷名}/{卷名}_{题型}/{题号}.md`），防论文汇编等说明笔记误判为题目。
+2. `check_note_links.py`：`NOTE_DIR_DEFAULT` 改引 `qb_schema.REPORT_DIR`，不再本地写 `3-试题研究`。
+3. `linkify_citations.py`：`note_dir()` 改引 `REPORT_DIR`；扫描由 `glob("*.md")` 改 `rglob("*.md")`——**此前报告一进子目录即静默空跑**（无报错、无输出）；新增 `--dir` 覆盖报告目录。
+4. `find_better_images.py`：`CATEGORY_SEGS` 由硬编码改为从 `qb_schema.CATEGORIES` + `CASE_ROOT` 推导，消除两处判断打架。
+5. `gen_index.py`：索引输出目录改引 `qb_schema.INDEX_DIR`。
+6. `setup.py --init`：补建五个功能目录（空目录也建，保证链路有落点）；`案例学习` 仍按需手工建。
+7. 文档同步：`SKILL.md`（description／生命周期／脚本清单／类别枚举／workflow 索引）、`README.md`、`references/fields.md`、`专题定义-河南中考14专题.md`、`分析基线-洛阳.md`、三份模板、`workflow/01-input.md`／`04-angle-analysis.md`／`05-range-analysis.md`、`tests/test_qb.py` 全部按新口径更新。
+8. `skill_config.json`（根目录 `{}` 与 `scripts/` 下含本机 vault 路径）按 `.gitignore` 排除，**不随仓库发布**。
+
+**验证**：同步后技能实体与仓库工作副本逐字节一致（仅排除本机配置与 git 元数据）；`tests/test_qb.py` **110 项全绿**。
+
 
 
